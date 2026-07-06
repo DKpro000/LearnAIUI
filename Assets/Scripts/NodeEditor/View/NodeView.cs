@@ -180,6 +180,7 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
         }
 
         bool isResultNode =
+            nodeData.nodeKind == "OutputNode" ||
             nodeData.nodeKind == "ResultOutputNode" ||
             nodeData.nodeKind == "FinalResultNode";
         resultText.gameObject.SetActive(isResultNode);
@@ -383,7 +384,8 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
             return;
         }
 
-        if (nodeData.nodeKind != "ResultOutputNode" &&
+        if (nodeData.nodeKind != "OutputNode" &&
+            nodeData.nodeKind != "ResultOutputNode" &&
             nodeData.nodeKind != "FinalResultNode")
         {
             resultText.gameObject.SetActive(false);

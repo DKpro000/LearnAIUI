@@ -107,6 +107,10 @@ public class GraphTrainSettings
     public string loss = "CrossEntropyLoss";
     public int maxTrainSamples = 2000;
     public string device = "auto";
+
+    public string modelName = "UnnamedModel";
+    public string weightName = "";
+    public string checkpointId = "";
 }
 
 [Serializable]
@@ -135,7 +139,10 @@ public class GraphTrainResponse
 
     public List<ResultNodeResponse> resultNodes = new List<ResultNodeResponse>();
 
+    public string checkpointId;
     public string checkpointPath;
+    public CheckpointMetadata checkpointMetadata;
+
     public int numClasses;
 
     public string modelSummary;
@@ -159,7 +166,7 @@ public class GraphFinalEvaluateRequest
     public string projectName;
     public GraphExportData graph;
     public GraphTrainSettings training;
-    public string checkpointPath;
+    public string checkpointId;
 }
 
 [Serializable]
@@ -172,6 +179,28 @@ public class GraphFinalEvaluateResponse
     public string checkpointPath;
     public string dataset;
     public int numClasses;
+    public string checkpointId;
+    public CheckpointMetadata checkpointMetadata;
 
     public List<ResultNodeResponse> finalResultNodes = new List<ResultNodeResponse>();
+}
+
+[Serializable]
+public class CheckpointMetadata
+{
+    public string checkpointId;
+    public string modelName;
+    public string weightName;
+    public string datasetName;
+    public string savedAt;
+    public string checkpointPath;
+    public int numClasses;
+}
+
+[Serializable]
+public class CheckpointListResponse
+{
+    public bool success;
+    public List<CheckpointMetadata> checkpoints = new List<CheckpointMetadata>();
+    public List<string> errors = new List<string>();
 }

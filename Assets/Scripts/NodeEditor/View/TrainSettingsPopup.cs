@@ -8,6 +8,8 @@ public class TrainSettingsPopup : MonoBehaviour
     public TMP_InputField batchSizeInput;
     public TMP_InputField learningRateInput;
     public TMP_InputField maxTrainSamplesInput;
+    public TMP_InputField modelNameInput;
+    public TMP_InputField weightNameInput;
 
     [Header("Dropdowns")]
     public TMP_Dropdown optimizerDropdown;
@@ -55,6 +57,18 @@ public class TrainSettingsPopup : MonoBehaviour
         if (maxTrainSamplesInput != null)
         {
             maxTrainSamplesInput.text = currentSettings.maxTrainSamples.ToString();
+        }
+
+        if (modelNameInput != null)
+        {
+            modelNameInput.text = string.IsNullOrWhiteSpace(currentSettings.modelName)
+                ? "UnnamedModel"
+                : currentSettings.modelName;
+        }
+
+        if (weightNameInput != null)
+        {
+            weightNameInput.text = currentSettings.weightName;
         }
 
         SetupOptimizerDropdown();
@@ -119,6 +133,16 @@ public class TrainSettingsPopup : MonoBehaviour
         settings.device = "auto";
 
         gameObject.SetActive(false);
+
+        if (modelNameInput != null)
+        {
+            settings.modelName = modelNameInput.text;
+        }
+
+        if (weightNameInput != null)
+        {
+            settings.weightName = weightNameInput.text;
+        }
 
         if (graphEditor != null)
         {

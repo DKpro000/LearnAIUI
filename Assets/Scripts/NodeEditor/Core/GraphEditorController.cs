@@ -31,6 +31,9 @@ public class GraphEditorController : MonoBehaviour
     public ContainerTemplateLibrary containerTemplateLibrary;
     public NodeLibraryMenuController nodeLibraryMenuController;
 
+    [Header("Evaluate Popup")]
+    public EvaluateSettingsPopup evaluateSettingsPopup;
+
     private int spawnIndex = 0;
 
     private readonly Dictionary<string, PortView> portViewLookup =
@@ -1187,14 +1190,28 @@ public class GraphEditorController : MonoBehaviour
             return;
         }
 
-        GraphTrainSettings settings = defaultTrainSettings;
+        string dataset = GetDatasetFromRootGraph();
 
+        if (evaluateSettingsPopup != null)
+        {
+            evaluateSettingsPopup.Setup(this, graphBackendClient);
+            evaluateSettingsPopup.Show(defaultTrainSettings, dataset);
+            return;
+        }
+
+        StartFinalEvaluateWithSettings(defaultTrainSettings);
+    }
+
+    public void StartFinalEvaluateWithSettings(GraphTrainSettings settings)
+    {
         if (settings == null)
         {
             settings = new GraphTrainSettings();
         }
 
         settings.dataset = GetDatasetFromRootGraph();
+
+        defaultTrainSettings = settings;
 
         StartCoroutine(graphBackendClient.FinalEvaluateGraph(rootGraph, settings));
     }

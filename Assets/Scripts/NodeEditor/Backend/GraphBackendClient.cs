@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using System.Collections;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 using TMPro;
 using UnityEngine;
@@ -27,7 +28,13 @@ public class GraphBackendClient : MonoBehaviour
     [Header("Graph Editor")]
     public GraphEditorController graphEditorController;
 
-    private string latestCheckpointPath = "";
+    public void SetSelectedCheckpointId(string checkpointId)
+    {
+        selectedCheckpointId = checkpointId;
+    }
+
+    private string selectedCheckpointId = "";
+    private List<CheckpointMetadata> cachedCheckpoints = new List<CheckpointMetadata>();
 
     public IEnumerator TrainGraph(GraphData graph, GraphTrainSettings settings)
     {
@@ -374,89 +381,46 @@ public class GraphBackendClient : MonoBehaviour
     {
         if (response == null)
         {
-            SetResultText("Train response is null.");
-            if (graphEditorController != null &&
-                response.resultNodes != null &&
-                response.resultNodes.Count > 0)
-            {
-                graphEditorController.ApplyResultNodeOutputs(response.resultNodes);
-            }
+            SetResultText("Train error: response is null.");
             return;
         }
 
-        string message = "";
-
-        if (response.success && !string.IsNullOrWhiteSpace(response.checkpointPath))
+        if (!response.success)
         {
-            latestCheckpointPath = response.checkpointPath;
-        }
-        else
-        {
-            message += "Training failed.\n";
-        }
+            string message = "Train error.\n";
 
-        message += "\nDataset: " + response.dataset;
-        message += "\nDevice: " + response.device;
-        message += "\nEpochs: " + response.epochs + "\n";
-
-        if (response.history != null &&
-            response.history.trainLoss != null &&
-            response.history.trainLoss.Count > 0)
-        {
-            message += "\nHistory:\n";
-
-            for (int i = 0; i < response.history.trainLoss.Count; i++)
+            if (response.errors != null)
             {
-                float lossValue = response.history.trainLoss[i];
-
-                string accText = "";
-
-                if (response.history.trainAcc != null &&
-                    i < response.history.trainAcc.Count)
+                foreach (string error in response.errors)
                 {
-                    accText = ", acc=" + response.history.trainAcc[i].ToString("0.0000");
+                    message += "- " + error + "\n";
                 }
-
-                message +=
-                    "Epoch " +
-                    (i + 1) +
-                    ": loss=" +
-                    lossValue.ToString("0.0000") +
-                    accText +
-                    "\n";
             }
+
+            SetResultText(message);
+            return;
         }
 
-        if (response.errors != null && response.errors.Count > 0)
+        if (response.success && !string.IsNullOrWhiteSpace(response.checkpointId))
         {
-            message += "\nErrors:\n";
-
-            foreach (string error in response.errors)
-            {
-                message += "- " + error + "\n";
-            }
+            selectedCheckpointId = response.checkpointId;
         }
 
-        if (response.warnings != null && response.warnings.Count > 0)
+        SetResultText(
+            "Train success.\n" +
+            "Dataset: " + response.dataset + "\n" +
+            "Saved weight: " +
+            (response.checkpointMetadata == null
+                ? response.checkpointId
+                : response.checkpointMetadata.weightName)
+        );
+
+        if (graphEditorController != null &&
+            response.resultNodes != null &&
+            response.resultNodes.Count > 0)
         {
-            message += "\nWarnings:\n";
-
-            foreach (string warning in response.warnings)
-            {
-                message += "- " + warning + "\n";
-            }
+            graphEditorController.ApplyResultNodeOutputs(response.resultNodes);
         }
-
-        if (response.success)
-        {
-            Debug.Log(message);
-        }
-        else
-        {
-            Debug.LogError(message);
-        }
-
-        SetResultText(message);
     }
 
     public IEnumerator FinalEvaluateGraph(GraphData graph, GraphTrainSettings settings)
@@ -471,7 +435,18 @@ public class GraphBackendClient : MonoBehaviour
         request.projectName = "UnityNodeGraph";
         request.graph = GraphExportUtility.ExportGraph(graph);
         request.training = settings == null ? new GraphTrainSettings() : settings;
-        request.checkpointPath = latestCheckpointPath;
+        request.checkpointId = request.training.checkpointId;
+
+        if (string.IsNullOrWhiteSpace(request.checkpointId))
+        {
+            request.checkpointId = selectedCheckpointId;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.checkpointId))
+        {
+            SetResultText("Final evaluate error.\nNo saved weight selected.");
+            yield break;
+        }
 
         string json = JsonConvert.SerializeObject(request);
 
@@ -506,13 +481,13 @@ public class GraphBackendClient : MonoBehaviour
     {
         if (response == null)
         {
-            SetResultText("Final evaluate response is null.");
+            SetResultText("Final evaluate error: response is null.");
             return;
         }
 
         if (!response.success)
         {
-            string message = "Final evaluate failed:\n";
+            string message = "Final evaluate error.\n";
 
             if (response.errors != null)
             {
@@ -526,18 +501,56 @@ public class GraphBackendClient : MonoBehaviour
             return;
         }
 
-        string text =
-            "Final evaluate finished.\n" +
-            "Dataset: " + response.dataset + "\n" +
-            "Checkpoint: " + response.checkpointPath + "\n";
-
-        SetResultText(text);
+        SetResultText(
+            "Final evaluate success.\n" +
+            "Dataset: " + response.dataset
+        );
 
         if (graphEditorController != null &&
             response.finalResultNodes != null &&
             response.finalResultNodes.Count > 0)
         {
             graphEditorController.ApplyResultNodeOutputs(response.finalResultNodes);
+        }
+    }
+
+    public IEnumerator LoadCheckpoints(
+        string datasetName,
+        Action<List<CheckpointMetadata>> onLoaded
+    )
+    {
+        string url = backendUrl + "/checkpoints";
+
+        if (!string.IsNullOrWhiteSpace(datasetName))
+        {
+            url += "?dataset_name=" + UnityWebRequest.EscapeURL(datasetName);
+        }
+
+        using (UnityWebRequest webRequest = UnityWebRequest.Get(url))
+        {
+            yield return webRequest.SendWebRequest();
+
+            if (webRequest.result != UnityWebRequest.Result.Success)
+            {
+                SetResultText("Load checkpoints failed:\n" + webRequest.error);
+                onLoaded?.Invoke(new List<CheckpointMetadata>());
+                yield break;
+            }
+
+            CheckpointListResponse response =
+                JsonConvert.DeserializeObject<CheckpointListResponse>(
+                    webRequest.downloadHandler.text
+                );
+
+            if (response == null || !response.success)
+            {
+                SetResultText("Load checkpoints failed.");
+                onLoaded?.Invoke(new List<CheckpointMetadata>());
+                yield break;
+            }
+
+            cachedCheckpoints = response.checkpoints;
+            onLoaded?.Invoke(cachedCheckpoints);
         }
     }
 }
