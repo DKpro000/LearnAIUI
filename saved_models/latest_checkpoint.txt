@@ -1,0 +1,1 @@
+C:\Users\dkpro\OneDrive\Desktop\backend\saved_models\checkpoint_MNIST_20260705_142833.pt

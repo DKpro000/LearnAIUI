@@ -1,0 +1,63 @@
+{
+  "checkpoints": [
+    {
+      "checkpointId": "UnnamedModel_UnnamedModel_20260705_205746_20260705_205746",
+      "modelName": "UnnamedModel",
+      "weightName": "UnnamedModel_20260705_205746",
+      "datasetName": "MNIST",
+      "inputShape": [
+        1,
+        1,
+        28,
+        28
+      ],
+      "numClasses": 10,
+      "savedAt": "20260705_205746",
+      "checkpointPath": "C:\\Users\\dkpro\\OneDrive\\Desktop\\backend\\saved_models\\checkpoints\\UnnamedModel_UnnamedModel_20260705_205746_20260705_205746.pt",
+      "graphSignature": {
+        "nodes": [
+          {
+            "definitionId": "custom.Dataset",
+            "title": "Dataset",
+            "symbol": "custom.Dataset",
+            "nodeKind": "DatasetNode",
+            "parameters": [
+              {
+                "key": "dataset_name",
+                "value": "MNIST"
+              },
+              {
+                "key": "input_shape",
+                "value": "[1, 1, 28, 28]"
+              }
+            ]
+          },
+          {
+            "definitionId": "custom.Output",
+            "title": "Model Output",
+            "symbol": "custom.Output",
+            "nodeKind": "OutputNode",
+            "parameters": [
+              {
+                "key": "output_name",
+                "value": "Accuracy"
+              }
+            ]
+          },
+          {
+            "definitionId": "custom.Container",
+            "title": "BasicCNN",
+            "symbol": "custom.Container",
+            "nodeKind": "ContainerNode",
+            "parameters": []
+          }
+        ],
+        "edgeCount": 2,
+        "nodeCount": 3
+      },
+      "epochs": 1,
+      "optimizer": "Adam",
+      "loss": "CrossEntropyLoss"
+    }
+  ]
+}
