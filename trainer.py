@@ -1,3 +1,4 @@
+import os
 import traceback
 import time
 from pathlib import Path
@@ -15,10 +16,13 @@ from checkpoint_manager import (
 )
 
 BACKEND_DIR = Path(__file__).resolve().parent
-SAVED_MODEL_DIR = BACKEND_DIR / "saved_models"
+RUNTIME_DIR = Path(os.environ.get("NN_BUILDER_RUNTIME_DIR", BACKEND_DIR))
+DATA_ROOT = Path(os.environ.get("NN_BUILDER_DATA_DIR", RUNTIME_DIR / "data"))
+SAVED_MODEL_DIR = RUNTIME_DIR / "saved_models"
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
 SAVED_MODEL_DIR.mkdir(exist_ok=True)
 
-def train_graph(payload: dict) -> dict:
+def train_graph(payload: dict, owner_player_id: str | None = None) -> dict:
     try:
         graph = payload.get("graph")
         training = payload.get("training", {})
@@ -115,7 +119,7 @@ def train_graph(payload: dict) -> dict:
             data_loader=train_loader,
             input_shape=input_shape,
             device=device,
-            num_classes=10,
+            num_classes=num_classes,
         )
 
         result_nodes = build_result_node_outputs(
@@ -137,6 +141,7 @@ def train_graph(payload: dict) -> dict:
                 "epochs": epochs,
                 "optimizer": optimizer_name,
                 "loss": loss_name,
+                "ownerPlayerId": owner_player_id or "",
             },
         )
 
@@ -151,6 +156,7 @@ def train_graph(payload: dict) -> dict:
             history=history,
             num_classes=num_classes,
             phase_name="Training Data",
+            eval_metrics=eval_metrics,
         )
 
         return {
@@ -228,7 +234,7 @@ def build_dataloader(dataset_name: str, batch_size: int, max_train_samples: int)
 
     if dataset_name == "MNIST":
         dataset = datasets.MNIST(
-            root="./data",
+            root=str(DATA_ROOT),
             train=True,
             download=True,
             transform=transform,
@@ -236,7 +242,7 @@ def build_dataloader(dataset_name: str, batch_size: int, max_train_samples: int)
 
     elif dataset_name == "FashionMNIST":
         dataset = datasets.FashionMNIST(
-            root="./data",
+            root=str(DATA_ROOT),
             train=True,
             download=True,
             transform=transform,
@@ -244,7 +250,7 @@ def build_dataloader(dataset_name: str, batch_size: int, max_train_samples: int)
 
     elif dataset_name == "CIFAR10":
         dataset = datasets.CIFAR10(
-            root="./data",
+            root=str(DATA_ROOT),
             train=True,
             download=True,
             transform=transform,
@@ -364,20 +370,41 @@ def evaluate_model(model, data_loader, input_shape, device, num_classes):
 
             logits = model(batch_x)
 
-            if logits.dim() == 1:
-                logits = logits.unsqueeze(0)
+            if logits.dim() != 2:
+                raise RuntimeError(
+                    "Model output must have shape [batch, classes] during evaluation. "
+                    f"Received {list(logits.shape)}."
+                )
+
+            if logits.size(0) != batch_y.numel():
+                raise RuntimeError(
+                    "Model output batch size does not match the target batch size. "
+                    f"Received {logits.size(0)} predictions for {batch_y.numel()} targets."
+                )
+
+            if logits.size(1) != num_classes:
+                raise RuntimeError(
+                    "Model output class count does not match the evaluation dataset. "
+                    f"Expected {num_classes}, received {logits.size(1)}."
+                )
 
             preds = torch.argmax(logits, dim=1)
 
             total_correct += (preds == batch_y).sum().item()
             total_samples += batch_y.size(0)
 
-            for target, pred in zip(batch_y.view(-1), preds.view(-1)):
-                target_value = int(target.item())
-                pred_value = int(pred.item())
+            targets = batch_y.view(-1).to(dtype=torch.int64)
 
-                if 0 <= target_value < num_classes and 0 <= pred_value < num_classes:
-                    confusion[target_value, pred_value] += 1
+            if torch.any(targets < 0) or torch.any(targets >= num_classes):
+                raise RuntimeError(
+                    "Evaluation dataset contains a target outside the configured class range."
+                )
+
+            batch_confusion = torch.bincount(
+                (targets * num_classes + preds.view(-1)).detach().cpu(),
+                minlength=num_classes * num_classes,
+            ).reshape(num_classes, num_classes)
+            confusion += batch_confusion
 
     accuracy = total_correct / max(total_samples, 1)
     f1_macro = compute_macro_f1(confusion)
@@ -538,7 +565,7 @@ def build_dataset_by_name(dataset_name: str, train: bool = True):
 
     if dataset_name == "MNIST":
         return datasets.MNIST(
-            root="./data",
+            root=str(DATA_ROOT),
             train=train,
             download=True,
             transform=transform,
@@ -546,7 +573,7 @@ def build_dataset_by_name(dataset_name: str, train: bool = True):
 
     if dataset_name == "FashionMNIST":
         return datasets.FashionMNIST(
-            root="./data",
+            root=str(DATA_ROOT),
             train=train,
             download=True,
             transform=transform,
@@ -554,7 +581,7 @@ def build_dataset_by_name(dataset_name: str, train: bool = True):
 
     if dataset_name == "CIFAR10":
         return datasets.CIFAR10(
-            root="./data",
+            root=str(DATA_ROOT),
             train=train,
             download=True,
             transform=transform,
@@ -587,6 +614,40 @@ def get_num_classes_from_dataset(dataset):
         return 0
 
     return max(labels) + 1
+
+
+def build_final_dataloader(
+    dataset_name: str,
+    batch_size: int,
+    final_ratio: float = 0.2,
+):
+    """Build only the held-out loader used for final/leaderboard evaluation."""
+    if dataset_name in ["MNIST", "FashionMNIST", "CIFAR10"]:
+        final_dataset = build_dataset_by_name(dataset_name, train=False)
+    else:
+        full_dataset = build_dataset_by_name(dataset_name, train=True)
+        final_size = int(len(full_dataset) * final_ratio)
+        train_size = len(full_dataset) - final_size
+
+        if final_size <= 0:
+            raise RuntimeError(
+                f"Dataset {dataset_name} is too small to create final split."
+            )
+
+        generator = torch.Generator().manual_seed(42)
+        _, final_dataset = random_split(
+            full_dataset,
+            [train_size, final_size],
+            generator=generator,
+        )
+
+    num_classes = get_num_classes_from_dataset(final_dataset)
+    final_loader = DataLoader(
+        final_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+    )
+    return final_loader, num_classes
 
 
 def build_train_final_dataloaders(
@@ -876,15 +937,21 @@ def load_checkpoint_weights_flexible(model, saved_state_dict):
             "mode": "remapped_by_order",
         }
 
-def final_evaluate_graph(payload: dict):
+def final_evaluate_graph(
+    payload: dict,
+    leaderboard_mode: bool = False,
+    owner_player_id: str | None = None,
+):
     try:
         graph = payload.get("graph", {})
         checkpoint_id = payload.get("checkpointId", "")
         training = payload.get("training", {})
 
-        batch_size = int(training.get("batchSize", 64))
-        max_train_samples = int(training.get("maxTrainSamples", 2000))
-        device_name = training.get("device", "auto")
+        batch_size = 64 if leaderboard_mode else int(training.get("batchSize", 64))
+        device_name = "auto" if leaderboard_mode else training.get("device", "auto")
+
+        if batch_size < 1 or batch_size > 512:
+            raise RuntimeError("Evaluation batchSize must be between 1 and 512.")
 
         dataset_name = get_dataset_name_from_graph(graph)
 
@@ -902,15 +969,50 @@ def final_evaluate_graph(payload: dict):
 
         checkpoint_path, checkpoint_metadata = resolve_checkpoint_path_by_id(checkpoint_id)
 
+        if leaderboard_mode:
+            checkpoint_owner = checkpoint_metadata.get("ownerPlayerId", "")
+            if not checkpoint_owner or checkpoint_owner != owner_player_id:
+                raise RuntimeError(
+                    "Only the player who trained this weight can submit its leaderboard score."
+                )
+
+        saved_dataset_name = checkpoint_metadata.get("datasetName", "")
+        if not saved_dataset_name:
+            raise RuntimeError("Selected checkpoint does not contain a dataset name.")
+
+        if dataset_name != saved_dataset_name:
+            raise RuntimeError(
+                "The selected checkpoint belongs to a different dataset. "
+                f"Expected {saved_dataset_name}, received {dataset_name}."
+            )
+
+        dataset_name = saved_dataset_name
+
         checkpoint = torch.load(
             checkpoint_path,
             map_location=device,
+            weights_only=True,
         )
 
         warnings = []
 
         current_signature = build_graph_signature(graph)
         saved_signature = checkpoint_metadata.get("graphSignature", {})
+
+        current_graph_hash = current_signature.get("graphHash", "")
+        saved_graph_hash = saved_signature.get("graphHash", "")
+
+        if leaderboard_mode:
+            if not saved_graph_hash:
+                raise RuntimeError(
+                    "This weight was saved before verified leaderboard support. "
+                    "Train it again before submitting a score."
+                )
+
+            if current_graph_hash != saved_graph_hash:
+                raise RuntimeError(
+                    "The graph does not exactly match the graph used to train this weight."
+                )
 
         if current_signature.get("nodeCount") != saved_signature.get("nodeCount"):
             warnings.append(
@@ -921,17 +1023,20 @@ def final_evaluate_graph(payload: dict):
         model = build_model_from_graph(graph)
         model.to(device)
 
-        load_result = load_checkpoint_weights_flexible(
-            model,
-            checkpoint["model_state_dict"],
-        )
+        if leaderboard_mode:
+            model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+            load_result = {"warnings": [], "mode": "strict"}
+        else:
+            load_result = load_checkpoint_weights_flexible(
+                model,
+                checkpoint["model_state_dict"],
+            )
 
         warnings.extend(load_result.get("warnings", []))
 
-        _, final_loader, num_classes = build_train_final_dataloaders(
+        final_loader, num_classes = build_final_dataloader(
             dataset_name=dataset_name,
             batch_size=batch_size,
-            max_train_samples=max_train_samples,
         )
 
         eval_metrics = evaluate_model(
@@ -951,6 +1056,7 @@ def final_evaluate_graph(payload: dict):
             history=checkpoint.get("history", {}),
             num_classes=num_classes,
             phase_name="Final Test Data",
+            eval_metrics=eval_metrics,
         )
 
         return {
@@ -1049,6 +1155,8 @@ def build_model_output_node_results(
     history: dict,
     num_classes: int,
     phase_name: str,
+    eval_metrics: dict | None = None,
+    preview: dict | None = None,
 ):
     """
     Build display text for each root-level Model Output node.
@@ -1060,21 +1168,23 @@ def build_model_output_node_results(
     if len(output_nodes) == 0:
         return []
 
-    eval_metrics = evaluate_model(
-        model=model,
-        data_loader=data_loader,
-        input_shape=input_shape,
-        device=device,
-        num_classes=num_classes,
-    )
+    if eval_metrics is None:
+        eval_metrics = evaluate_model(
+            model=model,
+            data_loader=data_loader,
+            input_shape=input_shape,
+            device=device,
+            num_classes=num_classes,
+        )
 
-    preview = collect_model_preview(
-        model=model,
-        data_loader=data_loader,
-        input_shape=input_shape,
-        device=device,
-        max_items=5,
-    )
+    if preview is None:
+        preview = collect_model_preview(
+            model=model,
+            data_loader=data_loader,
+            input_shape=input_shape,
+            device=device,
+            max_items=5,
+        )
 
     outputs = []
 

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +9,9 @@ from torchvision import datasets, transforms
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
-DATASET_ROOT = BACKEND_DIR / "dataset"
+DATASET_ROOT = Path(
+    os.environ.get("NN_BUILDER_LOCAL_DATASET_DIR", BACKEND_DIR / "dataset")
+)
 
 
 class TabularClassificationDataset(Dataset):

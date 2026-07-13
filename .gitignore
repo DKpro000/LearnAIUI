@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.worker-venv/
+worker-build/
+worker-dist/
+NNBuilderWorker.spec
+server_data/
+NNBuilderData/
+unity-compile.log
+unity-windows-build.log
+compute-worker.json
+secret.txt
+.env
