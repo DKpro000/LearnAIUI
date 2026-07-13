@@ -149,6 +149,11 @@ public class GraphTrainResponse
     public string device;
     public string dataset;
     public int epochs;
+    public bool queued;
+    public string jobId;
+    public string jobStatus;
+    public string executionMode;
+    public int activeWorkers;
 }
 
 [Serializable]
@@ -167,6 +172,32 @@ public class GraphFinalEvaluateRequest
     public GraphExportData graph;
     public GraphTrainSettings training;
     public string checkpointId;
+    public bool submitToLeaderboard = true;
+}
+
+[Serializable]
+public class FinalMetrics
+{
+    public float accuracy;
+    public float f1_macro;
+    public int total_samples;
+    public List<List<int>> confusion_matrix = new List<List<int>>();
+}
+
+[Serializable]
+public class LeaderboardScore
+{
+    public string evaluationId;
+    public string challengeId;
+    public string playerId;
+    public string season;
+    public string dataset;
+    public string checkpointId;
+    public string modelName;
+    public float f1Score;
+    public string recordedAt;
+    public bool isPersonalBest;
+    public float personalBestF1Score;
 }
 
 [Serializable]
@@ -182,6 +213,8 @@ public class GraphFinalEvaluateResponse
     public string checkpointId;
     public CheckpointMetadata checkpointMetadata;
 
+    public FinalMetrics finalMetrics;
+    public LeaderboardScore leaderboardScore;
     public List<ResultNodeResponse> finalResultNodes = new List<ResultNodeResponse>();
 }
 
@@ -202,5 +235,86 @@ public class CheckpointListResponse
 {
     public bool success;
     public List<CheckpointMetadata> checkpoints = new List<CheckpointMetadata>();
+    public List<string> errors = new List<string>();
+}
+
+[Serializable]
+public class PlayerRegistrationRequest
+{
+    public string displayName;
+}
+
+[Serializable]
+public class ServerConnectionConfig
+{
+    public string serverUrl;
+}
+
+[Serializable]
+public class PlayerIdentity
+{
+    public string playerId;
+    public string displayName;
+    public string token;
+    public string createdAt;
+}
+
+[Serializable]
+public class PlayerRegistrationResponse
+{
+    public bool success;
+    public PlayerIdentity player;
+    public List<string> errors = new List<string>();
+}
+
+[Serializable]
+public class TrainingJob
+{
+    public string jobId;
+    public string status;
+    public int attempts;
+    public GraphTrainResponse result;
+    public string error;
+    public string createdAt;
+    public string updatedAt;
+}
+
+[Serializable]
+public class TrainingJobResponse
+{
+    public bool success;
+    public TrainingJob job;
+    public List<string> errors = new List<string>();
+}
+
+[Serializable]
+public class LeaderboardEntry
+{
+    public int rank;
+    public string playerId;
+    public string displayName;
+    public float f1Score;
+    public string checkpointId;
+    public string modelName;
+    public string achievedAt;
+}
+
+[Serializable]
+public class LeaderboardData
+{
+    public string challengeId;
+    public string season;
+    public string dataset;
+    public string metric;
+    public int totalPlayers;
+    public int? callerRank;
+    public List<LeaderboardEntry> entries = new List<LeaderboardEntry>();
+}
+
+[Serializable]
+public class LeaderboardResponse
+{
+    public bool success;
+    public LeaderboardData leaderboard;
     public List<string> errors = new List<string>();
 }
