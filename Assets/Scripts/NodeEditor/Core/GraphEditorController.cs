@@ -1202,6 +1202,17 @@ public class GraphEditorController : MonoBehaviour
         StartFinalEvaluateWithSettings(defaultTrainSettings);
     }
 
+    public void ShowLeaderboard()
+    {
+        if (graphBackendClient == null)
+        {
+            Debug.LogError("GraphBackendClient is not assigned.");
+            return;
+        }
+
+        graphBackendClient.ShowLeaderboard(GetDatasetFromRootGraph());
+    }
+
     public void StartFinalEvaluateWithSettings(GraphTrainSettings settings)
     {
         if (settings == null)
