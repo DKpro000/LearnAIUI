@@ -198,6 +198,34 @@ public class GraphBackendClient : MonoBehaviour
             return;
         }
 
+        string workerDirectory = Path.GetDirectoryName(workerPath);
+        string torchCpuPath = Path.Combine(
+            workerDirectory,
+            "_internal",
+            "torch",
+            "lib",
+            "torch_cpu.dll"
+        );
+        const long MinimumTorchCpuDllBytes = 100L * 1024L * 1024L;
+        if (
+            !File.Exists(torchCpuPath) ||
+            new FileInfo(torchCpuPath).Length < MinimumTorchCpuDllBytes
+        )
+        {
+            if (!missingWorkerWasLogged)
+            {
+                Debug.LogWarning(
+                    "Bundled compute worker is incomplete; torch_cpu.dll is missing " +
+                    "or truncated. " +
+                    "Download and extract the complete worker release into " +
+                    "Assets/StreamingAssets/ComputeWorker. Unity will continue " +
+                    "without contributing compute. Missing file: " + torchCpuPath
+                );
+                missingWorkerWasLogged = true;
+            }
+            return;
+        }
+
         missingWorkerWasLogged = false;
         string runtimeDirectory = Path.Combine(
             Application.persistentDataPath,
@@ -304,50 +332,71 @@ public class GraphBackendClient : MonoBehaviour
             playerDisplayName = "Player-" + Guid.NewGuid().ToString("N").Substring(0, 6);
         }
 
-        PlayerRegistrationRequest registration = new PlayerRegistrationRequest
+        for (int registrationAttempt = 0; registrationAttempt < 2; registrationAttempt++)
         {
-            displayName = playerDisplayName.Trim()
-        };
-        string json = JsonConvert.SerializeObject(registration);
-
-        using (UnityWebRequest request = new UnityWebRequest(
-            backendUrl + "/players/register",
-            "POST"
-        ))
-        {
-            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
-            request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("Content-Type", "application/json");
-            yield return request.SendWebRequest();
-
-            if (request.result != UnityWebRequest.Result.Success)
+            PlayerRegistrationRequest registration = new PlayerRegistrationRequest
             {
-                SetResultText(
-                    "Player registration failed. Choose a unique player name.\n" +
-                    request.error + "\n" + request.downloadHandler.text
-                );
+                displayName = playerDisplayName.Trim()
+            };
+            string json = JsonConvert.SerializeObject(registration);
+
+            using (UnityWebRequest request = new UnityWebRequest(
+                backendUrl + "/players/register",
+                "POST"
+            ))
+            {
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                yield return request.SendWebRequest();
+
+                if (request.responseCode == 409 && registrationAttempt == 0)
+                {
+                    string suffix = "-" + Guid.NewGuid().ToString("N").Substring(0, 4);
+                    string baseName = playerDisplayName.Trim();
+                    int maximumBaseLength = 32 - suffix.Length;
+                    if (baseName.Length > maximumBaseLength)
+                    {
+                        baseName = baseName.Substring(0, maximumBaseLength);
+                    }
+                    playerDisplayName = baseName + suffix;
+                    Debug.LogWarning(
+                        "Player name is already registered; retrying as " +
+                        playerDisplayName + "."
+                    );
+                    continue;
+                }
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    SetResultText(
+                        "Player registration failed.\n" +
+                        request.error + "\n" + request.downloadHandler.text
+                    );
+                    yield break;
+                }
+
+                PlayerRegistrationResponse response =
+                    JsonConvert.DeserializeObject<PlayerRegistrationResponse>(
+                        request.downloadHandler.text
+                    );
+                if (response == null || !response.success || response.player == null)
+                {
+                    SetResultText("Player registration returned an invalid response.");
+                    yield break;
+                }
+
+                playerToken = response.player.token;
+                playerId = response.player.playerId;
+                playerDisplayName = response.player.displayName;
+                PlayerPrefs.SetString(PlayerTokenKey, playerToken);
+                PlayerPrefs.SetString(PlayerIdKey, playerId);
+                PlayerPrefs.SetString(PlayerNameKey, playerDisplayName);
+                PlayerPrefs.SetString(PlayerServerKey, backendUrl);
+                PlayerPrefs.Save();
+                SaveWorkerConfiguration();
                 yield break;
             }
-
-            PlayerRegistrationResponse response =
-                JsonConvert.DeserializeObject<PlayerRegistrationResponse>(
-                    request.downloadHandler.text
-                );
-            if (response == null || !response.success || response.player == null)
-            {
-                SetResultText("Player registration returned an invalid response.");
-                yield break;
-            }
-
-            playerToken = response.player.token;
-            playerId = response.player.playerId;
-            playerDisplayName = response.player.displayName;
-            PlayerPrefs.SetString(PlayerTokenKey, playerToken);
-            PlayerPrefs.SetString(PlayerIdKey, playerId);
-            PlayerPrefs.SetString(PlayerNameKey, playerDisplayName);
-            PlayerPrefs.SetString(PlayerServerKey, backendUrl);
-            PlayerPrefs.Save();
-            SaveWorkerConfiguration();
         }
     }
 
@@ -417,60 +466,80 @@ public class GraphBackendClient : MonoBehaviour
 
         string url = backendUrl + "/train_graph";
 
-        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+        for (int authenticationAttempt = 0; authenticationAttempt < 2; authenticationAttempt++)
         {
-            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
-
-            request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("Content-Type", "application/json");
-            AddPlayerAuthorization(request);
-
-            yield return request.SendWebRequest();
-
-            if (request.result != UnityWebRequest.Result.Success)
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
             {
-                string responseBody = request.downloadHandler == null
-                    ? ""
-                    : request.downloadHandler.text;
-                string error =
-                    "Train graph request failed: " + request.error +
-                    (string.IsNullOrWhiteSpace(responseBody)
+                byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                AddPlayerAuthorization(request);
+
+                yield return request.SendWebRequest();
+
+                if (request.responseCode == 401 && authenticationAttempt == 0)
+                {
+                    Debug.LogWarning(
+                        "The saved player token is no longer valid. " +
+                        "Registering a new session and retrying once."
+                    );
+                    SetResultText("Player session expired. Registering again...");
+                    ResetPlayerIdentity();
+                    yield return EnsurePlayerIdentity();
+                    if (string.IsNullOrWhiteSpace(playerToken))
+                    {
+                        yield break;
+                    }
+                    continue;
+                }
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    string responseBody = request.downloadHandler == null
                         ? ""
-                        : "\n" + responseBody);
-                Debug.LogError(error);
-                SetResultText(error);
+                        : request.downloadHandler.text;
+                    string error =
+                        "Train graph request failed: " + request.error +
+                        (string.IsNullOrWhiteSpace(responseBody)
+                            ? ""
+                            : "\n" + responseBody);
+                    Debug.LogError(error);
+                    SetResultText(error);
+                    yield break;
+                }
+
+                string responseJson = request.downloadHandler.text;
+                Debug.Log("Train graph response:\n" + responseJson);
+
+                GraphTrainResponse response = null;
+
+                try
+                {
+                    response = JsonConvert.DeserializeObject<GraphTrainResponse>(responseJson);
+                }
+                catch (Exception e)
+                {
+                    string error = "Failed to parse train response: " + e.Message;
+                    Debug.LogError(error);
+                    SetResultText(error);
+                    yield break;
+                }
+
+                if (response != null && response.queued)
+                {
+                    SetResultText(
+                        "Training queued.\n" +
+                        "Active worker computers: " + response.activeWorkers
+                    );
+                    yield return PollTrainingJob(response.jobId);
+                }
+                else
+                {
+                    ShowTrainResult(response);
+                }
                 yield break;
-            }
-
-            string responseJson = request.downloadHandler.text;
-            Debug.Log("Train graph response:\n" + responseJson);
-
-            GraphTrainResponse response = null;
-
-            try
-            {
-                response = JsonConvert.DeserializeObject<GraphTrainResponse>(responseJson);
-            }
-            catch (Exception e)
-            {
-                string error = "Failed to parse train response: " + e.Message;
-                Debug.LogError(error);
-                SetResultText(error);
-                yield break;
-            }
-
-            if (response != null && response.queued)
-            {
-                SetResultText(
-                    "Training queued.\n" +
-                    "Active worker computers: " + response.activeWorkers
-                );
-                yield return PollTrainingJob(response.jobId);
-            }
-            else
-            {
-                ShowTrainResult(response);
             }
         }
     }
