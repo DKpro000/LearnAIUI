@@ -32,6 +32,14 @@ $env:PLAYER_TOKEN_PEPPER = "replace-with-a-long-random-secret"
 .\.venv\Scripts\python.exe -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
+Keep both `PLAYER_TOKEN_PEPPER` and `SERVER_DATA_DIR` unchanged across server
+restarts. Player tokens are hashed with the pepper and stored in the database;
+changing either setting makes previously saved Unity sessions invalid. Restore
+the original pepper to preserve player identities and leaderboard ownership.
+Setting an environment variable with `$env:` affects only the current
+PowerShell process, so set it again in every new server terminal or configure a
+persistent user/system environment variable.
+
 Use one Uvicorn worker. The process contains a single local GPU fallback queue,
 and multiple Uvicorn processes would create competing fallback workers.
 

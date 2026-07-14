@@ -506,6 +506,312 @@
       "optimizer": "Adam",
       "loss": "CrossEntropyLoss",
       "ownerPlayerId": "0c8fce46-fc56-4c51-8c0d-39af91010017"
+    },
+    {
+      "checkpointId": "UnnamedModel_UnnamedModel_20260714_172643_20260714_172643_387ea4728dd8",
+      "modelName": "UnnamedModel",
+      "weightName": "UnnamedModel_20260714_172643",
+      "datasetName": "MNIST",
+      "inputShape": [
+        1,
+        1,
+        28,
+        28
+      ],
+      "numClasses": 10,
+      "savedAt": "20260714_172643",
+      "checkpointPath": "C:\\Users\\dkpro\\OneDrive\\Desktop\\backend\\saved_models\\checkpoints\\UnnamedModel_UnnamedModel_20260714_172643_20260714_172643_387ea4728dd8.pt",
+      "graphSignature": {
+        "nodes": [
+          {
+            "definitionId": "custom.Container",
+            "symbol": "custom.Container",
+            "nodeKind": "ContainerNode",
+            "parameters": [],
+            "innerGraph": {
+              "nodes": [
+                {
+                  "definitionId": "torch.nn.Conv2d",
+                  "symbol": "torch.nn.Conv2d",
+                  "nodeKind": "ModuleNode",
+                  "parameters": [
+                    {
+                      "key": "bias",
+                      "value": "True"
+                    },
+                    {
+                      "key": "device",
+                      "value": "None"
+                    },
+                    {
+                      "key": "dilation",
+                      "value": "1"
+                    },
+                    {
+                      "key": "dtype",
+                      "value": "None"
+                    },
+                    {
+                      "key": "groups",
+                      "value": "1"
+                    },
+                    {
+                      "key": "in_channels",
+                      "value": "1"
+                    },
+                    {
+                      "key": "kernel_size",
+                      "value": "3"
+                    },
+                    {
+                      "key": "out_channels",
+                      "value": "16"
+                    },
+                    {
+                      "key": "padding",
+                      "value": "1"
+                    },
+                    {
+                      "key": "padding_mode",
+                      "value": "zeros"
+                    },
+                    {
+                      "key": "stride",
+                      "value": "1"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "custom.Input",
+                  "symbol": "custom.Input",
+                  "nodeKind": "InputNode",
+                  "parameters": [
+                    {
+                      "key": "input_name",
+                      "value": "x"
+                    },
+                    {
+                      "key": "shape",
+                      "value": "[1, 1, 28, 28]"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "torch.nn.Linear",
+                  "symbol": "torch.nn.Linear",
+                  "nodeKind": "ModuleNode",
+                  "parameters": [
+                    {
+                      "key": "bias",
+                      "value": "True"
+                    },
+                    {
+                      "key": "device",
+                      "value": "None"
+                    },
+                    {
+                      "key": "dtype",
+                      "value": "None"
+                    },
+                    {
+                      "key": "in_features",
+                      "value": "12544"
+                    },
+                    {
+                      "key": "out_features",
+                      "value": "128"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "torch.nn.Linear",
+                  "symbol": "torch.nn.Linear",
+                  "nodeKind": "ModuleNode",
+                  "parameters": [
+                    {
+                      "key": "bias",
+                      "value": "True"
+                    },
+                    {
+                      "key": "device",
+                      "value": "None"
+                    },
+                    {
+                      "key": "dtype",
+                      "value": "None"
+                    },
+                    {
+                      "key": "in_features",
+                      "value": "128"
+                    },
+                    {
+                      "key": "out_features",
+                      "value": "10"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "torch.nn.functional.relu",
+                  "symbol": "torch.nn.functional.relu",
+                  "nodeKind": "FunctionNode",
+                  "parameters": [
+                    {
+                      "key": "inplace",
+                      "value": "False"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "torch.nn.functional.relu",
+                  "symbol": "torch.nn.functional.relu",
+                  "nodeKind": "FunctionNode",
+                  "parameters": [
+                    {
+                      "key": "inplace",
+                      "value": "False"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "torch.nn.Flatten",
+                  "symbol": "torch.nn.Flatten",
+                  "nodeKind": "ModuleNode",
+                  "parameters": [
+                    {
+                      "key": "end_dim",
+                      "value": "-1"
+                    },
+                    {
+                      "key": "start_dim",
+                      "value": "1"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                },
+                {
+                  "definitionId": "custom.Output",
+                  "symbol": "custom.Output",
+                  "nodeKind": "OutputNode",
+                  "parameters": [
+                    {
+                      "key": "output_name",
+                      "value": "logits"
+                    }
+                  ],
+                  "innerGraph": {
+                    "nodes": [],
+                    "edges": []
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "fromNode": 0,
+                  "fromPortName": "out",
+                  "toNode": 4,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 1,
+                  "fromPortName": "out",
+                  "toNode": 0,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 2,
+                  "fromPortName": "out",
+                  "toNode": 5,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 3,
+                  "fromPortName": "out",
+                  "toNode": 7,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 4,
+                  "fromPortName": "out",
+                  "toNode": 6,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 5,
+                  "fromPortName": "out",
+                  "toNode": 3,
+                  "toPortName": "x"
+                },
+                {
+                  "fromNode": 6,
+                  "fromPortName": "out",
+                  "toNode": 2,
+                  "toPortName": "x"
+                }
+              ]
+            }
+          },
+          {
+            "definitionId": "custom.Dataset",
+            "symbol": "custom.Dataset",
+            "nodeKind": "DatasetNode",
+            "parameters": [
+              {
+                "key": "dataset_name",
+                "value": "MNIST"
+              },
+              {
+                "key": "input_shape",
+                "value": "[1, 1, 28, 28]"
+              }
+            ]
+          },
+          {
+            "definitionId": "custom.Output",
+            "symbol": "custom.Output",
+            "nodeKind": "OutputNode",
+            "parameters": [
+              {
+                "key": "output_name",
+                "value": "Accuracy"
+              }
+            ]
+          }
+        ],
+        "edgeCount": 2,
+        "nodeCount": 3,
+        "graphHash": "f237a9d5064913cd8e99394aa86d090c8fde47829e1dcaa53d823e6bb941c8b2"
+      },
+      "epochs": 3,
+      "optimizer": "Adam",
+      "loss": "CrossEntropyLoss",
+      "ownerPlayerId": "0c8fce46-fc56-4c51-8c0d-39af91010017"
     }
   ]
 }
