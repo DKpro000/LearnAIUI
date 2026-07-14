@@ -66,6 +66,25 @@ The generated folder is approximately 486 MB and is copied to
 `Assets/StreamingAssets/ComputeWorker`. Unity automatically includes
 `StreamingAssets` in the Windows build.
 
+Do not add that generated folder to ordinary Git tracking. In particular,
+`_internal/torch/lib/torch_cpu.dll` is roughly 305 MB, which exceeds GitHub's
+normal 100 MB per-file limit. A clone containing the `.meta` file but not the
+DLL fails with PyTorch `WinError 126`.
+
+For friends who need to open the Unity source project, create a complete worker
+archive and upload it as a GitHub Release asset:
+
+```powershell
+.\package_worker_release.ps1 -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project"
+```
+
+After cloning the Unity project, they download the release ZIP and extract it
+into `Assets/StreamingAssets`. The final required path is
+`Assets/StreamingAssets/ComputeWorker/_internal/torch/lib/torch_cpu.dll`.
+They do not need Python. If they do not install the optional worker bundle,
+Unity still works and the server handles training, but their computer does not
+contribute compute.
+
 Distribute the complete Unity build folder, not only the `.exe`; Unity always
 requires its `_Data` folder and bundled libraries. Players only need to launch
 the Unity `.exe`. They do not install or start Python.

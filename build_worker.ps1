@@ -45,8 +45,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $SourcePath = Join-Path $DistPath "NNBuilderWorker"
-if (-not (Test-Path -LiteralPath (Join-Path $SourcePath "NNBuilderWorker.exe"))) {
+$SourceExePath = Join-Path $SourcePath "NNBuilderWorker.exe"
+$SourceTorchCpuPath = Join-Path $SourcePath "_internal\torch\lib\torch_cpu.dll"
+if (-not (Test-Path -LiteralPath $SourceExePath)) {
     throw "Packaged worker executable was not produced."
+}
+if (-not (Test-Path -LiteralPath $SourceTorchCpuPath)) {
+    throw "Packaged worker is incomplete: torch_cpu.dll was not produced."
 }
 
 New-Item -ItemType Directory -Path $StreamingAssetsPath -Force | Out-Null
@@ -54,6 +59,16 @@ if (Test-Path -LiteralPath $TargetPath) {
     Remove-Item -LiteralPath $TargetPath -Recurse -Force
 }
 Copy-Item -LiteralPath $SourcePath -Destination $TargetPath -Recurse
+
+$TargetTorchCpuPath = Join-Path $TargetPath "_internal\torch\lib\torch_cpu.dll"
+if (-not (Test-Path -LiteralPath $TargetTorchCpuPath)) {
+    throw "Copied worker is incomplete: $TargetTorchCpuPath is missing."
+}
+$SourceTorchCpuSize = (Get-Item -LiteralPath $SourceTorchCpuPath).Length
+$TargetTorchCpuSize = (Get-Item -LiteralPath $TargetTorchCpuPath).Length
+if ($SourceTorchCpuSize -ne $TargetTorchCpuSize) {
+    throw "Copied worker is corrupt: torch_cpu.dll size does not match the packaged source."
+}
 
 $Size = (
     Get-ChildItem -LiteralPath $TargetPath -File -Recurse |

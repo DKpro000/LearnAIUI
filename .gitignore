@@ -3,6 +3,7 @@ __pycache__/
 .worker-venv/
 worker-build/
 worker-dist/
+release/
 NNBuilderWorker.spec
 server_data/
 NNBuilderData/
