@@ -244,6 +244,7 @@ In Unity Hub:
 3. Open it with Unity `6000.5.3f1`.
 4. Wait for packages and scripts to finish importing.
 5. Open `Assets/Scenes/SampleScene.unity` if it is not already open.
+6. Go to **Window > Package Management > Package Manager > press "+" button > Install package by technical name > Enter "com.unity.nuget.newtonsoft-json" and install package**
 
 Do not copy another person's `Library`, `Temp`, `Obj`, or `UserSettings` folder.
 Unity generates those folders locally.
