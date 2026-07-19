@@ -258,6 +258,7 @@ public class AccountLoginRequest
 public class ServerConnectionConfig
 {
     public string serverUrl;
+    public string workerManifestUrl;
 }
 
 [Serializable]
