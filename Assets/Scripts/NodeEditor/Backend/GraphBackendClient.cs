@@ -27,6 +27,11 @@ public class GraphBackendClient : MonoBehaviour
     public float trainingJobPollSeconds = 2f;
     public bool automaticallyContributeCompute = true;
     public float workerRestartDelaySeconds = 10f;
+    public string workerManifestUrl =
+        "https://github.com/DKpro000/LearnAIUI/releases/download/" +
+        "worker-v2026.07.19/" +
+        "NNBuilderWorker-manifest.json";
+    public bool allowLegacyBundledWorkerFallback = true;
     public string bundledWorkerRelativePath = "ComputeWorker/NNBuilderWorker.exe";
 
     [Header("Training Settings")]
@@ -53,6 +58,8 @@ public class GraphBackendClient : MonoBehaviour
     private string playerId = "";
     private string playerEmail = "";
     private Process workerProcess;
+    private string resolvedWorkerPath = "";
+    private bool workerPreparationInProgress;
     private bool applicationQuitting;
     private bool missingWorkerWasLogged;
     private AccountLoginPanel accountPanel;
@@ -126,8 +133,15 @@ public class GraphBackendClient : MonoBehaviour
                     ServerConnectionConfig config =
                         JsonConvert.DeserializeObject<ServerConnectionConfig>(
                             File.ReadAllText(configPath)
-                        );
+                    );
                     configuredUrl = config == null ? "" : config.serverUrl;
+                    if (
+                        config != null &&
+                        !string.IsNullOrWhiteSpace(config.workerManifestUrl)
+                    )
+                    {
+                        workerManifestUrl = config.workerManifestUrl.Trim();
+                    }
                 }
                 catch (Exception error)
                 {
@@ -191,10 +205,21 @@ public class GraphBackendClient : MonoBehaviour
             if (
                 automaticallyContributeCompute &&
                 IsAuthenticated &&
-                !IsWorkerRunning()
+                !IsWorkerRunning() &&
+                !workerPreparationInProgress
             )
             {
-                StartBundledWorker();
+                if (
+                    !string.IsNullOrWhiteSpace(resolvedWorkerPath) &&
+                    File.Exists(resolvedWorkerPath)
+                )
+                {
+                    StartWorker(resolvedWorkerPath);
+                }
+                else
+                {
+                    yield return PrepareAutomaticWorker();
+                }
             }
             else if ((!automaticallyContributeCompute || !IsAuthenticated) && IsWorkerRunning())
             {
@@ -223,32 +248,91 @@ public class GraphBackendClient : MonoBehaviour
         }
     }
 
-    private void StartBundledWorker()
+    private IEnumerator PrepareAutomaticWorker()
     {
         if (
             Application.platform != RuntimePlatform.WindowsPlayer &&
             Application.platform != RuntimePlatform.WindowsEditor
         )
         {
-            return;
+            yield break;
         }
 
-        string workerPath = Path.Combine(
+        workerPreparationInProgress = true;
+        ComputeWorkerInstaller.Result resolved = null;
+        string preparationError = "";
+        ComputeWorkerInstaller installer = new ComputeWorkerInstaller();
+        yield return installer.Resolve(
+            workerManifestUrl,
+            delegate(string message)
+            {
+                Debug.Log("Compute worker: " + message);
+            },
+            delegate(string message)
+            {
+                preparationError = message;
+            },
+            delegate(ComputeWorkerInstaller.Result result)
+            {
+                resolved = result;
+            }
+        );
+
+        workerPreparationInProgress = false;
+        if (resolved != null && File.Exists(resolved.workerPath))
+        {
+            resolvedWorkerPath = resolved.workerPath;
+            missingWorkerWasLogged = false;
+            Debug.Log(
+                "Compute worker " + resolved.version + " (" + resolved.variant +
+                ") is ready: " + resolved.workerPath
+            );
+            if (
+                automaticallyContributeCompute &&
+                IsAuthenticated &&
+                !applicationQuitting
+            )
+            {
+                StartWorker(resolvedWorkerPath);
+            }
+            yield break;
+        }
+
+        string legacyWorkerPath = Path.Combine(
             Application.streamingAssetsPath,
             bundledWorkerRelativePath
         );
-        if (!File.Exists(workerPath))
+        if (allowLegacyBundledWorkerFallback && ValidateLegacyWorker(legacyWorkerPath))
         {
-            if (!missingWorkerWasLogged)
+            resolvedWorkerPath = legacyWorkerPath;
+            missingWorkerWasLogged = false;
+            Debug.LogWarning(
+                preparationError + " Using the legacy StreamingAssets worker instead."
+            );
+            if (
+                automaticallyContributeCompute &&
+                IsAuthenticated &&
+                !applicationQuitting
+            )
             {
-                Debug.LogWarning(
-                    "Bundled compute worker was not found: " + workerPath
-                );
-                missingWorkerWasLogged = true;
+                StartWorker(resolvedWorkerPath);
             }
-            return;
+            yield break;
         }
 
+        if (!missingWorkerWasLogged)
+        {
+            Debug.LogWarning(preparationError);
+            missingWorkerWasLogged = true;
+        }
+    }
+
+    private bool ValidateLegacyWorker(string workerPath)
+    {
+        if (!File.Exists(workerPath))
+        {
+            return false;
+        }
         string workerDirectory = Path.GetDirectoryName(workerPath);
         string torchCpuPath = Path.Combine(
             workerDirectory,
@@ -258,26 +342,19 @@ public class GraphBackendClient : MonoBehaviour
             "torch_cpu.dll"
         );
         const long MinimumTorchCpuDllBytes = 100L * 1024L * 1024L;
-        if (
-            !File.Exists(torchCpuPath) ||
-            new FileInfo(torchCpuPath).Length < MinimumTorchCpuDllBytes
-        )
+        return File.Exists(torchCpuPath) &&
+            new FileInfo(torchCpuPath).Length >= MinimumTorchCpuDllBytes;
+    }
+
+    private void StartWorker(string workerPath)
+    {
+        if (!ValidateLegacyWorker(workerPath))
         {
-            if (!missingWorkerWasLogged)
-            {
-                Debug.LogWarning(
-                    "Bundled compute worker is incomplete; torch_cpu.dll is missing " +
-                    "or truncated. " +
-                    "Download and extract the complete worker release into " +
-                    "Assets/StreamingAssets/ComputeWorker. Unity will continue " +
-                    "without contributing compute. Missing file: " + torchCpuPath
-                );
-                missingWorkerWasLogged = true;
-            }
+            Debug.LogWarning("Compute worker is missing or incomplete: " + workerPath);
+            resolvedWorkerPath = "";
             return;
         }
 
-        missingWorkerWasLogged = false;
         string runtimeDirectory = Path.Combine(
             Application.persistentDataPath,
             "compute-worker-runtime"
@@ -308,12 +385,12 @@ public class GraphBackendClient : MonoBehaviour
         {
             workerProcess = Process.Start(startInfo);
             Debug.Log(
-                "Bundled compute worker started. Log: " + logPath
+                "Compute worker started. Log: " + logPath
             );
         }
         catch (Exception error)
         {
-            Debug.LogError("Could not start bundled compute worker: " + error.Message);
+            Debug.LogError("Could not start compute worker: " + error.Message);
             workerProcess = null;
         }
     }
