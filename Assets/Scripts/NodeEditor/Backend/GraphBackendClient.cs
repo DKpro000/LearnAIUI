@@ -18,6 +18,9 @@ public class GraphBackendClient : MonoBehaviour
     [Header("Optional UI")]
     public TMP_Text resultText;
 
+    [Header("Account")]
+    public bool showRuntimeAccountPanel = true;
+
     [Header("Player / Distributed Compute")]
     public string playerDisplayName = "";
     public bool submitFinalScoreToLeaderboard = true;
@@ -48,13 +51,34 @@ public class GraphBackendClient : MonoBehaviour
     private List<CheckpointMetadata> cachedCheckpoints = new List<CheckpointMetadata>();
     private string playerToken = "";
     private string playerId = "";
+    private string playerEmail = "";
     private Process workerProcess;
     private bool applicationQuitting;
     private bool missingWorkerWasLogged;
+    private AccountLoginPanel accountPanel;
+
+    public bool IsAuthenticated
+    {
+        get { return !string.IsNullOrWhiteSpace(playerToken); }
+    }
+
+    public string CurrentEmail
+    {
+        get { return playerEmail; }
+    }
+
+    public string CurrentDisplayName
+    {
+        get { return playerDisplayName; }
+    }
+
+    public event Action<bool, string> AuthenticationChanged;
 
     private const string PlayerTokenKey = "NNBuilder.PlayerToken";
     private const string PlayerIdKey = "NNBuilder.PlayerId";
     private const string PlayerNameKey = "NNBuilder.PlayerName";
+    private const string PlayerEmailKey = "NNBuilder.PlayerEmail";
+    private const string LegacyPlayerUsernameKey = "NNBuilder.PlayerUsername";
     private const string PlayerServerKey = "NNBuilder.PlayerServer";
 
     private void Awake()
@@ -64,11 +88,25 @@ public class GraphBackendClient : MonoBehaviour
         {
             playerToken = PlayerPrefs.GetString(PlayerTokenKey, "");
             playerId = PlayerPrefs.GetString(PlayerIdKey, "");
+            playerEmail = PlayerPrefs.GetString(PlayerEmailKey, "");
+            if (string.IsNullOrWhiteSpace(playerEmail))
+            {
+                playerEmail = PlayerPrefs.GetString(LegacyPlayerUsernameKey, "");
+            }
             playerDisplayName = PlayerPrefs.GetString(PlayerNameKey, playerDisplayName);
             if (!string.IsNullOrWhiteSpace(playerToken))
             {
                 SaveWorkerConfiguration();
             }
+        }
+        if (showRuntimeAccountPanel)
+        {
+            accountPanel = GetComponent<AccountLoginPanel>();
+            if (accountPanel == null)
+            {
+                accountPanel = gameObject.AddComponent<AccountLoginPanel>();
+            }
+            accountPanel.Initialize(this);
         }
     }
 
@@ -138,16 +176,29 @@ public class GraphBackendClient : MonoBehaviour
 
     private IEnumerator Start()
     {
-        while (!applicationQuitting && automaticallyContributeCompute)
+        if (!string.IsNullOrWhiteSpace(playerToken))
         {
-            if (string.IsNullOrWhiteSpace(playerToken))
-            {
-                yield return EnsurePlayerIdentity();
-            }
+            yield return ValidateSavedSession();
+        }
+        NotifyAuthenticationChanged(
+            IsAuthenticated
+                ? "Signed in as " + playerDisplayName + "."
+                : "Log in or register to continue."
+        );
 
-            if (!string.IsNullOrWhiteSpace(playerToken) && !IsWorkerRunning())
+        while (!applicationQuitting)
+        {
+            if (
+                automaticallyContributeCompute &&
+                IsAuthenticated &&
+                !IsWorkerRunning()
+            )
             {
                 StartBundledWorker();
+            }
+            else if ((!automaticallyContributeCompute || !IsAuthenticated) && IsWorkerRunning())
+            {
+                StopBundledWorker();
             }
 
             yield return new WaitForSecondsRealtime(
@@ -299,15 +350,24 @@ public class GraphBackendClient : MonoBehaviour
         StopBundledWorker();
     }
 
-    [ContextMenu("Reset Player Identity")]
+    [ContextMenu("Clear Account Session")]
     public void ResetPlayerIdentity()
+    {
+        ClearLocalSession("Account session cleared. Log in again.");
+    }
+
+    private void ClearLocalSession(string message)
     {
         StopBundledWorker();
         playerToken = "";
         playerId = "";
+        playerEmail = "";
+        playerDisplayName = "";
         PlayerPrefs.DeleteKey(PlayerTokenKey);
         PlayerPrefs.DeleteKey(PlayerIdKey);
         PlayerPrefs.DeleteKey(PlayerNameKey);
+        PlayerPrefs.DeleteKey(PlayerEmailKey);
+        PlayerPrefs.DeleteKey(LegacyPlayerUsernameKey);
         PlayerPrefs.DeleteKey(PlayerServerKey);
         PlayerPrefs.Save();
         string configPath = Path.Combine(
@@ -318,86 +378,245 @@ public class GraphBackendClient : MonoBehaviour
         {
             File.Delete(configPath);
         }
+        NotifyAuthenticationChanged(message);
+    }
+
+    private void SaveAccountSession(PlayerIdentity player)
+    {
+        if (player == null)
+        {
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(player.token))
+        {
+            playerToken = player.token;
+        }
+        playerId = player.playerId;
+        playerEmail = string.IsNullOrWhiteSpace(player.email)
+            ? player.username
+            : player.email;
+        playerDisplayName = player.displayName;
+        PlayerPrefs.SetString(PlayerTokenKey, playerToken);
+        PlayerPrefs.SetString(PlayerIdKey, playerId);
+        PlayerPrefs.SetString(PlayerEmailKey, playerEmail);
+        PlayerPrefs.DeleteKey(LegacyPlayerUsernameKey);
+        PlayerPrefs.SetString(PlayerNameKey, playerDisplayName);
+        PlayerPrefs.SetString(PlayerServerKey, backendUrl);
+        PlayerPrefs.Save();
+        SaveWorkerConfiguration();
+        NotifyAuthenticationChanged("Signed in as " + playerDisplayName + ".");
+    }
+
+    private void NotifyAuthenticationChanged(string message)
+    {
+        AuthenticationChanged?.Invoke(IsAuthenticated, message);
+    }
+
+    private string AccountRequestError(UnityWebRequest request, string fallback)
+    {
+        string body = request.downloadHandler == null
+            ? ""
+            : request.downloadHandler.text;
+        if (!string.IsNullOrWhiteSpace(body))
+        {
+            try
+            {
+                AccountErrorResponse response =
+                    JsonConvert.DeserializeObject<AccountErrorResponse>(body);
+                if (
+                    response != null &&
+                    response.errors != null &&
+                    response.errors.Count > 0 &&
+                    !string.IsNullOrWhiteSpace(response.errors[0].message)
+                )
+                {
+                    return response.errors[0].message;
+                }
+            }
+            catch
+            {
+                // Fall through to the HTTP error and raw response.
+            }
+        }
+        return fallback + ": " + request.error +
+            (string.IsNullOrWhiteSpace(body) ? "" : "\n" + body);
+    }
+
+    private IEnumerator ValidateSavedSession()
+    {
+        using (UnityWebRequest request = UnityWebRequest.Get(backendUrl + "/auth/me"))
+        {
+            AddPlayerAuthorization(request);
+            yield return request.SendWebRequest();
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                ClearLocalSession("Your saved session expired. Log in again.");
+                yield break;
+            }
+            AccountResponse response = JsonConvert.DeserializeObject<AccountResponse>(
+                request.downloadHandler.text
+            );
+            if (response == null || !response.success || response.player == null)
+            {
+                ClearLocalSession("The server rejected the saved session.");
+                yield break;
+            }
+            SaveAccountSession(response.player);
+        }
+    }
+
+    public void LoginWithPassword(
+        string email,
+        string password,
+        Action<bool, string> completed
+    )
+    {
+        StartCoroutine(LoginAccount(email, password, completed));
+    }
+
+    private IEnumerator LoginAccount(
+        string email,
+        string password,
+        Action<bool, string> completed
+    )
+    {
+        AccountLoginRequest login = new AccountLoginRequest
+        {
+            email = email == null ? "" : email.Trim(),
+            password = password ?? ""
+        };
+        string json = JsonConvert.SerializeObject(login);
+        using (UnityWebRequest request = new UnityWebRequest(
+            backendUrl + "/auth/login",
+            "POST"
+        ))
+        {
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            yield return request.SendWebRequest();
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                string error = AccountRequestError(request, "Login failed");
+                completed?.Invoke(false, error);
+                yield break;
+            }
+            AccountResponse response = JsonConvert.DeserializeObject<AccountResponse>(
+                request.downloadHandler.text
+            );
+            if (response == null || !response.success || response.player == null)
+            {
+                completed?.Invoke(false, "Login returned an invalid response.");
+                yield break;
+            }
+            SaveAccountSession(response.player);
+            completed?.Invoke(true, "Signed in as " + playerDisplayName + ".");
+        }
+    }
+
+    public void RegisterWithPassword(
+        string email,
+        string displayName,
+        string password,
+        string confirmPassword,
+        Action<bool, string> completed
+    )
+    {
+        StartCoroutine(RegisterAccount(
+            email,
+            displayName,
+            password,
+            confirmPassword,
+            completed
+        ));
+    }
+
+    private IEnumerator RegisterAccount(
+        string email,
+        string displayName,
+        string password,
+        string confirmPassword,
+        Action<bool, string> completed
+    )
+    {
+        AccountRegistrationRequest registration = new AccountRegistrationRequest
+        {
+            email = email == null ? "" : email.Trim(),
+            displayName = displayName == null ? "" : displayName.Trim(),
+            password = password ?? "",
+            confirmPassword = confirmPassword ?? ""
+        };
+        string json = JsonConvert.SerializeObject(registration);
+        using (UnityWebRequest request = new UnityWebRequest(
+            backendUrl + "/auth/register",
+            "POST"
+        ))
+        {
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            yield return request.SendWebRequest();
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                string error = AccountRequestError(request, "Registration failed");
+                completed?.Invoke(false, error);
+                yield break;
+            }
+            AccountResponse response = JsonConvert.DeserializeObject<AccountResponse>(
+                request.downloadHandler.text
+            );
+            if (response == null || !response.success || response.player == null)
+            {
+                completed?.Invoke(false, "Registration returned an invalid response.");
+                yield break;
+            }
+            SaveAccountSession(response.player);
+            completed?.Invoke(true, "Account created for " + playerDisplayName + ".");
+        }
+    }
+
+    public void LogoutAccount(Action<bool, string> completed = null)
+    {
+        StartCoroutine(LogoutAccountRequest(completed));
+    }
+
+    private IEnumerator LogoutAccountRequest(Action<bool, string> completed)
+    {
+        bool serverConfirmed = false;
+        if (!string.IsNullOrWhiteSpace(playerToken))
+        {
+            using (UnityWebRequest request = new UnityWebRequest(
+                backendUrl + "/auth/logout",
+                "POST"
+            ))
+            {
+                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes("{}"));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                AddPlayerAuthorization(request);
+                yield return request.SendWebRequest();
+                serverConfirmed = request.result == UnityWebRequest.Result.Success;
+            }
+        }
+        ClearLocalSession("Logged out. Log in to continue.");
+        completed?.Invoke(
+            true,
+            serverConfirmed
+                ? "Logged out."
+                : "Local session cleared; the server could not be reached."
+        );
     }
 
     private IEnumerator EnsurePlayerIdentity()
     {
-        if (!string.IsNullOrWhiteSpace(playerToken))
+        if (IsAuthenticated)
         {
             yield break;
         }
-
-        if (string.IsNullOrWhiteSpace(playerDisplayName))
-        {
-            playerDisplayName = "Player-" + Guid.NewGuid().ToString("N").Substring(0, 6);
-        }
-
-        for (int registrationAttempt = 0; registrationAttempt < 2; registrationAttempt++)
-        {
-            PlayerRegistrationRequest registration = new PlayerRegistrationRequest
-            {
-                displayName = playerDisplayName.Trim()
-            };
-            string json = JsonConvert.SerializeObject(registration);
-
-            using (UnityWebRequest request = new UnityWebRequest(
-                backendUrl + "/players/register",
-                "POST"
-            ))
-            {
-                request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
-                request.downloadHandler = new DownloadHandlerBuffer();
-                request.SetRequestHeader("Content-Type", "application/json");
-                yield return request.SendWebRequest();
-
-                if (request.responseCode == 409 && registrationAttempt == 0)
-                {
-                    string suffix = "-" + Guid.NewGuid().ToString("N").Substring(0, 4);
-                    string baseName = playerDisplayName.Trim();
-                    int maximumBaseLength = 32 - suffix.Length;
-                    if (baseName.Length > maximumBaseLength)
-                    {
-                        baseName = baseName.Substring(0, maximumBaseLength);
-                    }
-                    playerDisplayName = baseName + suffix;
-                    Debug.LogWarning(
-                        "Player name is already registered; retrying as " +
-                        playerDisplayName + "."
-                    );
-                    continue;
-                }
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    SetResultText(
-                        "Player registration failed.\n" +
-                        request.error + "\n" + request.downloadHandler.text
-                    );
-                    yield break;
-                }
-
-                PlayerRegistrationResponse response =
-                    JsonConvert.DeserializeObject<PlayerRegistrationResponse>(
-                        request.downloadHandler.text
-                    );
-                if (response == null || !response.success || response.player == null)
-                {
-                    SetResultText("Player registration returned an invalid response.");
-                    yield break;
-                }
-
-                playerToken = response.player.token;
-                playerId = response.player.playerId;
-                playerDisplayName = response.player.displayName;
-                PlayerPrefs.SetString(PlayerTokenKey, playerToken);
-                PlayerPrefs.SetString(PlayerIdKey, playerId);
-                PlayerPrefs.SetString(PlayerNameKey, playerDisplayName);
-                PlayerPrefs.SetString(PlayerServerKey, backendUrl);
-                PlayerPrefs.Save();
-                SaveWorkerConfiguration();
-                yield break;
-            }
-        }
+        string message = "Log in or register before using server features.";
+        SetResultText(message);
+        NotifyAuthenticationChanged(message);
+        yield break;
     }
 
     private void SaveWorkerConfiguration()
@@ -434,6 +653,19 @@ public class GraphBackendClient : MonoBehaviour
         }
     }
 
+    private bool HandleExpiredSession(UnityWebRequest request)
+    {
+        if (request.responseCode != 401)
+        {
+            return false;
+        }
+
+        const string message = "Account session expired. Log in again.";
+        ClearLocalSession(message);
+        SetResultText(message);
+        return true;
+    }
+
     public IEnumerator TrainGraph(GraphData graph, GraphTrainSettings settings)
     {
         if (graph == null)
@@ -466,11 +698,9 @@ public class GraphBackendClient : MonoBehaviour
 
         string url = backendUrl + "/train_graph";
 
-        for (int authenticationAttempt = 0; authenticationAttempt < 2; authenticationAttempt++)
+        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
-            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
-            {
-                byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
 
                 request.uploadHandler = new UploadHandlerRaw(bodyRaw);
                 request.downloadHandler = new DownloadHandlerBuffer();
@@ -479,20 +709,9 @@ public class GraphBackendClient : MonoBehaviour
 
                 yield return request.SendWebRequest();
 
-                if (request.responseCode == 401 && authenticationAttempt == 0)
+                if (HandleExpiredSession(request))
                 {
-                    Debug.LogWarning(
-                        "The saved player token is no longer valid. " +
-                        "Registering a new session and retrying once."
-                    );
-                    SetResultText("Player session expired. Registering again...");
-                    ResetPlayerIdentity();
-                    yield return EnsurePlayerIdentity();
-                    if (string.IsNullOrWhiteSpace(playerToken))
-                    {
-                        yield break;
-                    }
-                    continue;
+                    yield break;
                 }
 
                 if (request.result != UnityWebRequest.Result.Success)
@@ -539,8 +758,7 @@ public class GraphBackendClient : MonoBehaviour
                 {
                     ShowTrainResult(response);
                 }
-                yield break;
-            }
+            yield break;
         }
     }
 
@@ -563,6 +781,11 @@ public class GraphBackendClient : MonoBehaviour
             {
                 AddPlayerAuthorization(request);
                 yield return request.SendWebRequest();
+
+                if (HandleExpiredSession(request))
+                {
+                    yield break;
+                }
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
@@ -607,6 +830,12 @@ public class GraphBackendClient : MonoBehaviour
             yield break;
         }
 
+        yield return EnsurePlayerIdentity();
+        if (!IsAuthenticated)
+        {
+            yield break;
+        }
+
         GraphExportData exportGraph = GraphExportUtility.ExportGraph(graph);
 
         GraphValidationRequest requestData = new GraphValidationRequest
@@ -631,8 +860,14 @@ public class GraphBackendClient : MonoBehaviour
             request.uploadHandler = new UploadHandlerRaw(bodyRaw);
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
+            AddPlayerAuthorization(request);
 
             yield return request.SendWebRequest();
+
+            if (HandleExpiredSession(request))
+            {
+                yield break;
+            }
 
             if (request.result != UnityWebRequest.Result.Success)
             {
@@ -741,6 +976,12 @@ public class GraphBackendClient : MonoBehaviour
             yield break;
         }
 
+        yield return EnsurePlayerIdentity();
+        if (!IsAuthenticated)
+        {
+            yield break;
+        }
+
         GraphExportData exportGraph = GraphExportUtility.ExportGraph(graph);
 
         GraphValidationRequest requestData = new GraphValidationRequest
@@ -765,8 +1006,14 @@ public class GraphBackendClient : MonoBehaviour
             request.uploadHandler = new UploadHandlerRaw(bodyRaw);
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
+            AddPlayerAuthorization(request);
 
             yield return request.SendWebRequest();
+
+            if (HandleExpiredSession(request))
+            {
+                yield break;
+            }
 
             if (request.result != UnityWebRequest.Result.Success)
             {
@@ -968,6 +1215,11 @@ public class GraphBackendClient : MonoBehaviour
 
             yield return webRequest.SendWebRequest();
 
+            if (HandleExpiredSession(webRequest))
+            {
+                yield break;
+            }
+
             if (webRequest.result != UnityWebRequest.Result.Success)
             {
                 SetResultText("Final evaluate request failed:\n" + webRequest.error);
@@ -1061,6 +1313,12 @@ public class GraphBackendClient : MonoBehaviour
             AddPlayerAuthorization(webRequest);
             yield return webRequest.SendWebRequest();
 
+            if (HandleExpiredSession(webRequest))
+            {
+                onLoaded?.Invoke(new List<CheckpointMetadata>());
+                yield break;
+            }
+
             if (webRequest.result != UnityWebRequest.Result.Success)
             {
                 SetResultText("Load checkpoints failed:\n" + webRequest.error);
@@ -1118,6 +1376,11 @@ public class GraphBackendClient : MonoBehaviour
         {
             AddPlayerAuthorization(request);
             yield return request.SendWebRequest();
+            if (HandleExpiredSession(request))
+            {
+                onLoaded?.Invoke(null);
+                yield break;
+            }
             if (request.result != UnityWebRequest.Result.Success)
             {
                 SetResultText("Leaderboard request failed:\n" + request.error);

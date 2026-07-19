@@ -239,9 +239,19 @@ public class CheckpointListResponse
 }
 
 [Serializable]
-public class PlayerRegistrationRequest
+public class AccountRegistrationRequest
 {
+    public string email;
     public string displayName;
+    public string password;
+    public string confirmPassword;
+}
+
+[Serializable]
+public class AccountLoginRequest
+{
+    public string email;
+    public string password;
 }
 
 [Serializable]
@@ -254,17 +264,35 @@ public class ServerConnectionConfig
 public class PlayerIdentity
 {
     public string playerId;
+    public string email;
+    // Retained only for sessions created by an older username-based server.
+    public string username;
     public string displayName;
     public string token;
     public string createdAt;
+    public string sessionExpiresAt;
 }
 
 [Serializable]
-public class PlayerRegistrationResponse
+public class AccountResponse
 {
     public bool success;
     public PlayerIdentity player;
-    public List<string> errors = new List<string>();
+    public List<AccountApiError> errors = new List<AccountApiError>();
+}
+
+[Serializable]
+public class AccountApiError
+{
+    public string code;
+    public string message;
+}
+
+[Serializable]
+public class AccountErrorResponse
+{
+    public bool success;
+    public List<AccountApiError> errors = new List<AccountApiError>();
 }
 
 [Serializable]
