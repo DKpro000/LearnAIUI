@@ -20,6 +20,9 @@ from checkpoint_manager import delete_checkpoint
 from trainer import train_graph
 
 
+WORKER_PLANE_PREFIX = "/worker-plane"
+
+
 def supported_datasets() -> list[str]:
     supported = ["MNIST", "FashionMNIST", "CIFAR10"]
     dataset_root = Path(
@@ -90,7 +93,7 @@ class WorkerClient:
         if torch.cuda.is_available():
             capabilities["gpu"] = torch.cuda.get_device_name(0)
         response = self._request(
-            "/compute/workers/register",
+            WORKER_PLANE_PREFIX + "/workers/register",
             payload={"name": self.name, "capabilities": capabilities},
             worker_auth=False,
         )
@@ -99,21 +102,21 @@ class WorkerClient:
         self.worker_token = worker["token"]
 
     def claim(self) -> dict | None:
-        return self._request("/compute/jobs/claim").get("job")
+        return self._request(WORKER_PLANE_PREFIX + "/jobs/claim").get("job")
 
     def renew(self, job_id: str) -> None:
-        self._request(f"/compute/jobs/{job_id}/heartbeat")
+        self._request(f"{WORKER_PLANE_PREFIX}/jobs/{job_id}/heartbeat")
 
     def fail(self, job_id: str, error: str, retry: bool = True) -> None:
         self._request(
-            f"/compute/jobs/{job_id}/fail",
+            f"{WORKER_PLANE_PREFIX}/jobs/{job_id}/fail",
             payload={"error": error[:2000], "retry": retry},
         )
 
     def complete(self, job_id: str, checkpoint_path: str) -> dict:
         artifact = Path(checkpoint_path).read_bytes()
         return self._request(
-            f"/compute/jobs/{job_id}/complete",
+            f"{WORKER_PLANE_PREFIX}/jobs/{job_id}/complete",
             body=artifact,
             timeout=300,
         )

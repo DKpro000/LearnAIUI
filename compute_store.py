@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS training_jobs (
     attempts INTEGER NOT NULL DEFAULT 0,
     result_json TEXT,
     error TEXT,
+    validation_hash TEXT,
+    validated_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -76,6 +78,52 @@ class ComputeStore:
         with self._connection() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_SCHEMA)
+            self._migrate_schema(connection)
+
+    @staticmethod
+    def _migrate_schema(connection: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(training_jobs)").fetchall()
+        }
+        if "claimed_by" not in columns:
+            connection.execute(
+                "ALTER TABLE training_jobs ADD COLUMN claimed_by TEXT"
+            )
+            if "assigned_worker_id" in columns:
+                connection.execute(
+                    "UPDATE training_jobs SET claimed_by = assigned_worker_id"
+                )
+        if "lease_until" not in columns:
+            connection.execute(
+                "ALTER TABLE training_jobs ADD COLUMN lease_until TEXT"
+            )
+            if "lease_expires_at" in columns:
+                connection.execute(
+                    "UPDATE training_jobs SET lease_until = lease_expires_at"
+                )
+        if "validation_hash" not in columns:
+            connection.execute(
+                "ALTER TABLE training_jobs ADD COLUMN validation_hash TEXT"
+            )
+        if "validated_at" not in columns:
+            connection.execute(
+                "ALTER TABLE training_jobs ADD COLUMN validated_at TEXT"
+            )
+        now = _timestamp()
+        connection.execute(
+            """
+            UPDATE training_jobs
+            SET status = 'failed',
+                error = 'Legacy queued job was not control-plane validated.',
+                claimed_by = NULL,
+                lease_until = NULL,
+                updated_at = ?
+            WHERE validation_hash IS NULL
+              AND status IN ('queued', 'running')
+            """,
+            (now,),
+        )
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -211,10 +259,35 @@ class ComputeStore:
                 ).fetchone()[0]
             )
 
-    def enqueue_job(self, player_id: str, payload: dict) -> dict:
+    @staticmethod
+    def payload_hash(payload: dict) -> str:
+        if not isinstance(payload, dict):
+            raise ValidationError("Training payload must be an object.")
+        encoded = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def enqueue_validated_job(
+        self,
+        player_id: str,
+        payload: dict,
+        validation_hash: str,
+    ) -> dict:
         player_id = self._require_text(player_id, "playerId", 128)
         if not isinstance(payload, dict):
             raise ValidationError("Training payload must be an object.")
+        expected_hash = self.payload_hash(payload)
+        if (
+            not isinstance(validation_hash, str)
+            or not secrets.compare_digest(expected_hash, validation_hash.lower())
+        ):
+            raise ValidationError(
+                "Training payload does not match its control-plane validation receipt."
+            )
         job_id = str(uuid.uuid4())
         now = _timestamp()
         payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
@@ -222,14 +295,25 @@ class ComputeStore:
             connection.execute(
                 """
                 INSERT INTO training_jobs
-                    (job_id, player_id, payload_json, status, created_at, updated_at)
-                VALUES (?, ?, ?, 'queued', ?, ?)
+                    (job_id, player_id, payload_json, status, validation_hash,
+                     validated_at, created_at, updated_at)
+                VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)
                 """,
-                (job_id, player_id, payload_json, now, now),
+                (
+                    job_id,
+                    player_id,
+                    payload_json,
+                    expected_hash,
+                    now,
+                    now,
+                    now,
+                ),
             )
         return {
             "jobId": job_id,
             "status": "queued",
+            "validationHash": expected_hash,
+            "validatedAt": now,
             "createdAt": now,
         }
 
@@ -264,9 +348,12 @@ class ComputeStore:
             self._requeue_expired(connection)
             rows = connection.execute(
                 """
-                SELECT job_id, player_id, payload_json, attempts, created_at
+                SELECT job_id, player_id, payload_json, validation_hash,
+                       attempts, created_at
                 FROM training_jobs
                 WHERE status = 'queued'
+                  AND validation_hash IS NOT NULL
+                  AND validated_at IS NOT NULL
                 ORDER BY created_at ASC
                 LIMIT 100
                 """
@@ -274,6 +361,21 @@ class ComputeStore:
             row = None
             for candidate in rows:
                 candidate_payload = json.loads(candidate["payload_json"])
+                if not secrets.compare_digest(
+                    self.payload_hash(candidate_payload),
+                    candidate["validation_hash"],
+                ):
+                    connection.execute(
+                        """
+                        UPDATE training_jobs
+                        SET status = 'failed',
+                            error = 'Validated payload hash mismatch.',
+                            updated_at = ?
+                        WHERE job_id = ? AND status = 'queued'
+                        """,
+                        (_timestamp(now), candidate["job_id"]),
+                    )
+                    continue
                 dataset_name = self._payload_dataset(candidate_payload)
                 if (
                     supported_datasets is None
@@ -301,6 +403,7 @@ class ComputeStore:
             "jobId": row["job_id"],
             "playerId": row["player_id"],
             "payload": json.loads(row["payload_json"]),
+            "validationHash": row["validation_hash"],
             "attempt": int(row["attempts"]) + 1,
             "leaseUntil": lease_until,
             "createdAt": row["created_at"],
@@ -373,7 +476,7 @@ class ComputeStore:
         with self._connection() as connection:
             row = connection.execute(
                 """
-                SELECT job_id, player_id, payload_json
+                SELECT job_id, player_id, payload_json, validation_hash
                 FROM training_jobs
                 WHERE job_id = ? AND status = 'running' AND claimed_by = ?
                 """,
@@ -385,6 +488,7 @@ class ComputeStore:
             "jobId": row["job_id"],
             "playerId": row["player_id"],
             "payload": json.loads(row["payload_json"]),
+            "validationHash": row["validation_hash"],
         }
 
     def fail_job(

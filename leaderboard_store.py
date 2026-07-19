@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import math
+import re
 import secrets
 import sqlite3
 import threading
 import unicodedata
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -62,8 +63,28 @@ CREATE TABLE IF NOT EXISTS players (
     display_name TEXT NOT NULL,
     display_name_key TEXT NOT NULL UNIQUE,
     token_hash BLOB NOT NULL UNIQUE,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    username TEXT,
+    username_key TEXT,
+    password_salt BLOB,
+    password_hash BLOB,
+    password_iterations INTEGER,
+    account_updated_at TEXT,
+    email TEXT,
+    email_key TEXT
 );
+
+CREATE TABLE IF NOT EXISTS player_sessions (
+    session_id TEXT PRIMARY KEY,
+    player_id TEXT NOT NULL REFERENCES players(player_id),
+    token_hash BLOB NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS player_sessions_player_idx
+ON player_sessions (player_id, revoked_at, expires_at);
 
 CREATE TABLE IF NOT EXISTS challenges (
     challenge_id TEXT PRIMARY KEY,
@@ -114,11 +135,19 @@ BEGIN
     SELECT RAISE(ABORT, 'evaluation history is immutable');
 END;
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 3;
 """
 
 _CHALLENGE_NAMESPACE = uuid.UUID("4d537142-50ef-4dd8-a49b-dffbbf34d309")
 _MAX_PAGE_SIZE = 100
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,31}$")
+_EMAIL_PATTERN = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
+_DEFAULT_PASSWORD_ITERATIONS = 310_000
+_MAX_ACTIVE_SESSIONS = 10
 
 
 def _now_utc() -> str:
@@ -145,6 +174,48 @@ def _normalize_text(value: str, field: str, max_length: int) -> tuple[str, str]:
 def _validate_identifier(value: str, field: str, max_length: int = 128) -> str:
     normalized, _ = _normalize_text(value, field, max_length)
     return normalized
+
+
+def _normalize_username(value: str) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise ValidationError("username must be a string.")
+    username = unicodedata.normalize("NFKC", value).strip()
+    if not _USERNAME_PATTERN.fullmatch(username):
+        raise ValidationError(
+            "username must be 3-32 characters and contain only letters, numbers, "
+            "periods, underscores, or hyphens."
+        )
+    return username, username.casefold()
+
+
+def _normalize_email(value: str) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise ValidationError("email must be a string.")
+    email = unicodedata.normalize("NFKC", value).strip()
+    if len(email) > 254 or not _EMAIL_PATTERN.fullmatch(email):
+        raise ValidationError("email must be a valid email address.")
+    local_part, domain = email.rsplit("@", 1)
+    if (
+        len(local_part) > 64
+        or local_part.startswith(".")
+        or local_part.endswith(".")
+        or ".." in local_part
+    ):
+        raise ValidationError("email must be a valid email address.")
+    normalized = local_part + "@" + domain.lower()
+    return normalized, normalized.casefold()
+
+
+def _validate_password(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValidationError("password must be a string.")
+    if len(value) < 10 or len(value) > 128:
+        raise ValidationError("password must be between 10 and 128 characters.")
+    if value.isspace():
+        raise ValidationError("password cannot contain only whitespace.")
+    if len(value.encode("utf-8")) > 512:
+        raise ValidationError("password is too long when encoded.")
+    return value
 
 
 def _score_parts(value: float) -> tuple[float, int]:
@@ -176,6 +247,8 @@ class LeaderboardStore:
         season: str = "default",
         *,
         token_pepper: str | bytes = b"",
+        password_iterations: int = _DEFAULT_PASSWORD_ITERATIONS,
+        session_ttl_days: int = 30,
     ) -> None:
         raw_path = str(db_path)
         if not raw_path:
@@ -187,6 +260,24 @@ class LeaderboardStore:
         if not isinstance(token_pepper, bytes):
             raise ValidationError("tokenPepper must be bytes or a string.")
         self._token_pepper = token_pepper
+        if isinstance(password_iterations, bool) or not isinstance(
+            password_iterations, int
+        ):
+            raise ValidationError("passwordIterations must be an integer.")
+        if password_iterations < 100_000 or password_iterations > 2_000_000:
+            raise ValidationError(
+                "passwordIterations must be between 100000 and 2000000."
+            )
+        if (
+            isinstance(session_ttl_days, bool)
+            or not isinstance(session_ttl_days, int)
+            or session_ttl_days < 1
+            or session_ttl_days > 365
+        ):
+            raise ValidationError("sessionTtlDays must be between 1 and 365.")
+        self._password_iterations = password_iterations
+        self._session_ttl_days = session_ttl_days
+        self._dummy_password_salt = secrets.token_bytes(16)
         self._memory_lock = threading.RLock()
         self._memory_connection: sqlite3.Connection | None = None
 
@@ -205,6 +296,42 @@ class LeaderboardStore:
             if self._memory_connection is None:
                 connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_SCHEMA)
+            self._migrate_schema(connection)
+
+    @staticmethod
+    def _migrate_schema(connection: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(players)").fetchall()
+        }
+        additions = {
+            "username": "TEXT",
+            "username_key": "TEXT",
+            "password_salt": "BLOB",
+            "password_hash": "BLOB",
+            "password_iterations": "INTEGER",
+            "account_updated_at": "TEXT",
+            "email": "TEXT",
+            "email_key": "TEXT",
+        }
+        for column, declaration in additions.items():
+            if column not in columns:
+                connection.execute(
+                    f"ALTER TABLE players ADD COLUMN {column} {declaration}"
+                )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS players_username_key_unique_idx
+            ON players (username_key) WHERE username_key IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS players_email_key_unique_idx
+            ON players (email_key) WHERE email_key IS NOT NULL
+            """
+        )
+        connection.execute("PRAGMA user_version = 3")
 
     @staticmethod
     def _configure_connection(connection: sqlite3.Connection) -> None:
@@ -244,6 +371,233 @@ class LeaderboardStore:
         if self._token_pepper:
             return hmac.new(self._token_pepper, token_bytes, hashlib.sha256).digest()
         return hashlib.sha256(token_bytes).digest()
+
+    @staticmethod
+    def _hash_password(password: str, salt: bytes, iterations: int) -> bytes:
+        return hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt,
+            iterations,
+        )
+
+    def _issue_session(
+        self,
+        connection: sqlite3.Connection,
+        player_id: str,
+    ) -> tuple[str, str, str]:
+        token = "sess_" + secrets.token_urlsafe(40)
+        session_id = str(uuid.uuid4())
+        created = datetime.now(timezone.utc)
+        created_at = _now_utc()
+        expires_at = (created + timedelta(days=self._session_ttl_days)).isoformat(
+            timespec="microseconds"
+        ).replace("+00:00", "Z")
+        connection.execute(
+            """
+            INSERT INTO player_sessions
+                (session_id, player_id, token_hash, created_at, expires_at, revoked_at)
+            VALUES (?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                session_id,
+                player_id,
+                self._hash_token(token),
+                created_at,
+                expires_at,
+            ),
+        )
+        active_rows = connection.execute(
+            """
+            SELECT session_id FROM player_sessions
+            WHERE player_id = ? AND revoked_at IS NULL AND expires_at > ?
+            ORDER BY created_at DESC
+            """,
+            (player_id, created_at),
+        ).fetchall()
+        for old_session in active_rows[_MAX_ACTIVE_SESSIONS:]:
+            connection.execute(
+                "UPDATE player_sessions SET revoked_at = ? WHERE session_id = ?",
+                (created_at, old_session["session_id"]),
+            )
+        return token, created_at, expires_at
+
+    @staticmethod
+    def _account_response(
+        row: sqlite3.Row,
+        *,
+        token: str | None = None,
+        session_expires_at: str | None = None,
+    ) -> dict:
+        result = {
+            "playerId": row["player_id"],
+            "email": row["email"],
+            "displayName": row["display_name"],
+            "createdAt": row["created_at"],
+        }
+        if row["username"] is not None:
+            result["username"] = row["username"]
+        if token is not None:
+            result["token"] = token
+        if session_expires_at is not None:
+            result["sessionExpiresAt"] = session_expires_at
+        return result
+
+    def register_account(
+        self,
+        email: str,
+        password: str,
+        confirm_password: str,
+        display_name: str = "",
+    ) -> dict:
+        email, email_key = _normalize_email(email)
+        password = _validate_password(password)
+        if not isinstance(confirm_password, str):
+            raise ValidationError("confirmPassword must be a string.")
+        if not hmac.compare_digest(
+            password.encode("utf-8"), confirm_password.encode("utf-8")
+        ):
+            raise ValidationError("password and confirmation password do not match.")
+        if not isinstance(display_name, str) or not display_name.strip():
+            raise ValidationError("displayName cannot be empty.")
+        display_name, display_name_key = _normalize_text(
+            display_name, "displayName", 32
+        )
+        player_id = str(uuid.uuid4())
+        password_salt = secrets.token_bytes(16)
+        password_hash = self._hash_password(
+            password,
+            password_salt,
+            self._password_iterations,
+        )
+        created_at = _now_utc()
+        disabled_legacy_hash = self._hash_token(
+            "disabled_legacy_" + secrets.token_urlsafe(32)
+        )
+
+        try:
+            with self._write() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO players
+                        (player_id, display_name, display_name_key, token_hash,
+                         created_at, password_salt, password_hash,
+                         password_iterations, account_updated_at, email, email_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        player_id,
+                        display_name,
+                        display_name_key,
+                        disabled_legacy_hash,
+                        created_at,
+                        password_salt,
+                        password_hash,
+                        self._password_iterations,
+                        created_at,
+                        email,
+                        email_key,
+                    ),
+                )
+                token, _, expires_at = self._issue_session(connection, player_id)
+                row = connection.execute(
+                    "SELECT * FROM players WHERE player_id = ?", (player_id,)
+                ).fetchone()
+        except sqlite3.IntegrityError:
+            raise ConflictError(
+                "That email address or display name is already in use."
+            ) from None
+
+        return self._account_response(
+            row,
+            token=token,
+            session_expires_at=expires_at,
+        )
+
+    def login_account(self, email: str, password: str) -> dict:
+        _, email_key = _normalize_email(email)
+        password = _validate_password(password)
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM players WHERE email_key = ?", (email_key,)
+            ).fetchone()
+
+        if row is None:
+            self._hash_password(
+                password,
+                self._dummy_password_salt,
+                self._password_iterations,
+            )
+            raise AuthenticationError("Invalid email or password.")
+
+        stored_hash = row["password_hash"]
+        stored_salt = row["password_salt"]
+        iterations = row["password_iterations"]
+        if stored_hash is None or stored_salt is None or iterations is None:
+            raise AuthenticationError("Invalid email or password.")
+        supplied_hash = self._hash_password(password, stored_salt, int(iterations))
+        if not hmac.compare_digest(stored_hash, supplied_hash):
+            raise AuthenticationError("Invalid email or password.")
+
+        with self._write() as connection:
+            token, _, expires_at = self._issue_session(
+                connection, row["player_id"]
+            )
+        return self._account_response(
+            row,
+            token=token,
+            session_expires_at=expires_at,
+        )
+
+    def authenticate_account_session(self, token: str) -> dict:
+        if not isinstance(token, str):
+            raise AuthenticationError("Invalid or expired player session.")
+        token = token.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        if not token:
+            raise AuthenticationError("Invalid or expired player session.")
+        now = _now_utc()
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT players.*, player_sessions.expires_at
+                FROM player_sessions
+                JOIN players ON players.player_id = player_sessions.player_id
+                WHERE player_sessions.token_hash = ?
+                  AND player_sessions.revoked_at IS NULL
+                  AND player_sessions.expires_at > ?
+                  AND (
+                      players.email_key IS NOT NULL
+                      OR players.username_key IS NOT NULL
+                  )
+                """,
+                (self._hash_token(token), now),
+            ).fetchone()
+        if row is None:
+            raise AuthenticationError("Invalid or expired player session.")
+        return self._account_response(
+            row,
+            session_expires_at=row["expires_at"],
+        )
+
+    def logout_account(self, token: str) -> None:
+        if not isinstance(token, str) or not token.strip():
+            raise AuthenticationError("Invalid or expired player session.")
+        token = token.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        now = _now_utc()
+        with self._write() as connection:
+            changed = connection.execute(
+                """
+                UPDATE player_sessions SET revoked_at = ?
+                WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+                """,
+                (now, self._hash_token(token), now),
+            ).rowcount
+        if not changed:
+            raise AuthenticationError("Invalid or expired player session.")
 
     def _challenge_values(self, dataset: str) -> tuple[str, str, str]:
         dataset_name, dataset_key = _normalize_text(dataset, "dataset", 64)

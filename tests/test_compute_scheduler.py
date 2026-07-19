@@ -1,7 +1,9 @@
 import copy
 import io
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -94,13 +96,54 @@ class ComputeStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temporary_directory.cleanup()
 
+    def enqueue_validated(self, player_id, payload):
+        return self.store.enqueue_validated_job(
+            player_id,
+            payload,
+            self.store.payload_hash(payload),
+        )
+
+    def test_existing_unvalidated_queued_jobs_are_failed_during_migration(self):
+        legacy_path = Path(self.temporary_directory.name) / "legacy-compute.db"
+        with closing(sqlite3.connect(legacy_path)) as connection:
+            connection.execute(
+                """
+                CREATE TABLE training_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    player_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    assigned_worker_id TEXT,
+                    lease_expires_at TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    result_json TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO training_jobs "
+                "(job_id, player_id, payload_json, status, created_at, updated_at) "
+                "VALUES ('old-job', 'legacy', '{}', 'queued', 'old', 'old')"
+            )
+            connection.commit()
+
+        migrated = ComputeStore(legacy_path)
+        job = migrated.get_job("old-job")
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("control-plane validated", job["error"])
+
     def test_counts_distinct_active_players_and_leases_jobs(self):
         first = self.store.register_worker("player-a", "A1")
         self.store.register_worker("player-a", "A2")
         second = self.store.register_worker("player-b", "B")
         self.assertEqual(self.store.active_worker_count(), 2)
 
-        queued = self.store.enqueue_job("player-a", {"graph": {}, "training": {}})
+        queued = self.enqueue_validated(
+            "player-a", {"graph": {}, "training": {}}
+        )
         claimed = self.store.claim_next_job(first["workerId"])
         self.assertEqual(claimed["jobId"], queued["jobId"])
         self.assertIsNone(self.store.claim_next_job(second["workerId"]))
@@ -118,7 +161,7 @@ class ComputeStoreTests(unittest.TestCase):
 
     def test_failed_jobs_retry_at_most_three_attempts(self):
         worker = self.store.register_worker("player-a", "A")
-        job = self.store.enqueue_job("player-a", {"graph": {}})
+        job = self.enqueue_validated("player-a", {"graph": {}})
         for expected_attempt in (1, 2, 3):
             claimed = self.store.claim_next_job(worker["workerId"])
             self.assertEqual(claimed["attempt"], expected_attempt)
@@ -130,11 +173,11 @@ class ComputeStoreTests(unittest.TestCase):
 
     def test_worker_claims_only_supported_dataset_jobs(self):
         worker = self.store.register_worker("player-a", "CPU worker")
-        unsupported = self.store.enqueue_job(
+        unsupported = self.enqueue_validated(
             "player-a",
             {"training": {"dataset": "ChihuahuaMuffin"}},
         )
-        supported = self.store.enqueue_job(
+        supported = self.enqueue_validated(
             "player-a",
             {"training": {"dataset": "MNIST"}},
         )
@@ -144,6 +187,11 @@ class ComputeStoreTests(unittest.TestCase):
         )
         self.assertEqual(claimed["jobId"], supported["jobId"])
         self.assertEqual(self.store.get_job(unsupported["jobId"])["status"], "queued")
+
+    def test_rejects_job_without_matching_control_plane_validation_receipt(self):
+        payload = {"graph": {}, "training": {"dataset": "MNIST"}}
+        with self.assertRaisesRegex(Exception, "validation receipt"):
+            self.store.enqueue_validated_job("player-a", payload, "0" * 64)
 
 
 class TrainingCoordinatorTests(unittest.TestCase):
@@ -181,7 +229,11 @@ class TrainingCoordinatorTests(unittest.TestCase):
     @patch("distributed_training.train_graph")
     def test_queued_job_falls_back_to_server_when_workers_are_unavailable(self, train):
         train.return_value = {"success": True, "checkpointMetadata": {}}
-        job = self.store.enqueue_job("player-a", self.payload)
+        job = self.store.enqueue_validated_job(
+            "player-a",
+            self.payload,
+            self.store.payload_hash(self.payload),
+        )
         self.assertTrue(self.coordinator.process_fallback_once())
         completed = self.store.get_job(job["jobId"], player_id="player-a")
         self.assertEqual(completed["status"], "completed")
@@ -215,7 +267,11 @@ class TrainingCoordinatorTests(unittest.TestCase):
         coordinator = TrainingCoordinator(self.store)
         payload = coordinator.validate_payload(small_graph_payload())
         worker = self.store.register_worker("player-a", "Worker")
-        queued = self.store.enqueue_job("player-a", payload)
+        queued = self.store.enqueue_validated_job(
+            "player-a",
+            payload,
+            self.store.payload_hash(payload),
+        )
         claimed = self.store.claim_next_job(worker["workerId"])
 
         model = GeneratedGraphModel(

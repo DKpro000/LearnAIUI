@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import math
+import secrets
 import threading
 
 import torch
@@ -278,7 +279,12 @@ class TrainingCoordinator:
         payload = self.validate_payload(payload)
         active_workers = self.store.active_worker_count()
         if active_workers >= self.minimum_remote_workers:
-            job = self.store.enqueue_job(player_id, payload)
+            validation_hash = self.store.payload_hash(payload)
+            job = self.store.enqueue_validated_job(
+                player_id,
+                payload,
+                validation_hash,
+            )
             return {
                 "success": True,
                 "queued": True,
@@ -306,6 +312,11 @@ class TrainingCoordinator:
             raise ValidationError("Worker checkpoint has an invalid size.")
         leased_job = self.store.get_leased_job(job_id, worker_id)
         payload = leased_job["payload"]
+        if not secrets.compare_digest(
+            self.store.payload_hash(payload),
+            leased_job["validationHash"],
+        ):
+            raise ValidationError("Training job validation receipt is invalid.")
 
         try:
             checkpoint = torch.load(

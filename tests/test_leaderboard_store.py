@@ -19,6 +19,45 @@ class LeaderboardStoreTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.db_path = Path(self.temp_dir.name) / "leaderboard.sqlite3"
 
+    def test_existing_anonymous_database_is_migrated_for_formal_accounts(self):
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            connection.execute(
+                """
+                CREATE TABLE players (
+                    player_id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    display_name_key TEXT NOT NULL UNIQUE,
+                    token_hash BLOB NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO players VALUES (?, ?, ?, ?, ?)",
+                ("legacy", "Legacy", "legacy", b"legacy-hash", "2026-01-01Z"),
+            )
+            connection.commit()
+
+        store = LeaderboardStore(self.db_path, token_pepper="migration-pepper")
+        account = store.register_account(
+            "new.account@example.com",
+            "migration-password",
+            "migration-password",
+            "New Account",
+        )
+        authenticated = store.authenticate_account_session(account["token"])
+        self.assertEqual(authenticated["email"], "new.account@example.com")
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(players)")
+            }
+            legacy_email = connection.execute(
+                "SELECT email FROM players WHERE player_id = 'legacy'"
+            ).fetchone()[0]
+        self.assertIn("password_hash", columns)
+        self.assertIn("email_key", columns)
+        self.assertIsNone(legacy_email)
+
     def test_player_names_are_normalized_unique_and_tokens_are_hashed(self):
         store = LeaderboardStore(self.db_path)
         player = store.register_player("  Alice   Smith  ")
@@ -42,6 +81,84 @@ class LeaderboardStoreTests(unittest.TestCase):
         self.assertNotIn(player["token"].encode(), token_hash)
         self.assertEqual(len(token_hash), 32)
         self.assertEqual(journal_mode.lower(), "wal")
+
+    def test_formal_account_register_login_logout_and_password_hashing(self):
+        store = LeaderboardStore(
+            self.db_path,
+            token_pepper="test-only-pepper",
+            password_iterations=100_000,
+        )
+        registered = store.register_account(
+            "Alice.Account@Example.COM",
+            "correct horse battery staple",
+            "correct horse battery staple",
+            "Alice",
+        )
+        self.assertEqual(registered["email"], "Alice.Account@example.com")
+        self.assertEqual(
+            store.authenticate_account_session(registered["token"])["playerId"],
+            registered["playerId"],
+        )
+        logged_in = store.login_account(
+            "alice.account@EXAMPLE.com",
+            "correct horse battery staple",
+        )
+        self.assertEqual(logged_in["playerId"], registered["playerId"])
+
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            row = connection.execute(
+                """
+                SELECT password_salt, password_hash, password_iterations
+                FROM players WHERE player_id = ?
+                """,
+                (registered["playerId"],),
+            ).fetchone()
+            session_hash = connection.execute(
+                "SELECT token_hash FROM player_sessions LIMIT 1"
+            ).fetchone()[0]
+        self.assertEqual(len(row[0]), 16)
+        self.assertEqual(len(row[1]), 32)
+        self.assertEqual(row[2], 100_000)
+        self.assertNotIn(b"correct horse", row[1])
+        self.assertNotIn(registered["token"].encode(), session_hash)
+
+        store.logout_account(logged_in["token"])
+        with self.assertRaises(AuthenticationError):
+            store.authenticate_account_session(logged_in["token"])
+
+    def test_formal_account_rejects_duplicates_and_bad_credentials(self):
+        store = LeaderboardStore(self.db_path, password_iterations=100_000)
+        store.register_account(
+            "Test_User@example.com",
+            "long-enough-password",
+            "long-enough-password",
+            "Test User",
+        )
+        with self.assertRaises(ConflictError):
+            store.register_account(
+                "test_user@EXAMPLE.COM",
+                "another-long-password",
+                "another-long-password",
+                "Other",
+            )
+        with self.assertRaises(AuthenticationError):
+            store.login_account("test_user@example.com", "wrong-password-value")
+        with self.assertRaises(ValidationError):
+            store.register_account(
+                "not-an-email",
+                "long-enough-password",
+                "long-enough-password",
+                "Bad",
+            )
+        with self.assertRaises(ValidationError):
+            store.register_account("short@example.com", "short", "short", "Bad")
+        with self.assertRaisesRegex(ValidationError, "do not match"):
+            store.register_account(
+                "mismatch@example.com",
+                "long-enough-password",
+                "different-password",
+                "Mismatch",
+            )
 
     def test_history_is_append_only_and_only_improvements_replace_best(self):
         store = LeaderboardStore(self.db_path, season="Season 1")
