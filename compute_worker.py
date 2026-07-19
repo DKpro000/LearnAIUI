@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import platform
@@ -21,6 +22,77 @@ from trainer import train_graph
 
 
 WORKER_PLANE_PREFIX = "/worker-plane"
+
+
+def detect_compute_device(preference: str = "auto") -> dict:
+    """Probe the packaged PyTorch runtime and return a safe training device."""
+    preference = (preference or "auto").strip().lower()
+    result = {
+        "selectedDevice": "cpu",
+        "accelerator": "cpu",
+        "cudaAvailable": False,
+        "cudaBuild": torch.version.cuda or "",
+        "gpuCount": 0,
+        "gpus": [],
+        "fallbackReason": "",
+    }
+    if preference == "cpu":
+        result["fallbackReason"] = "CPU was selected by worker configuration."
+        return result
+
+    try:
+        if not torch.cuda.is_available():
+            result["fallbackReason"] = (
+                "The packaged PyTorch runtime or this computer has no usable "
+                "NVIDIA CUDA device."
+            )
+            return result
+
+        device_count = torch.cuda.device_count()
+        gpus = []
+        for index in range(device_count):
+            properties = torch.cuda.get_device_properties(index)
+            gpus.append(
+                {
+                    "index": index,
+                    "name": torch.cuda.get_device_name(index),
+                    "totalMemoryMb": int(properties.total_memory // (1024 * 1024)),
+                }
+            )
+
+        # A small allocation catches missing/incompatible drivers before the
+        # worker registers itself as GPU-capable.
+        torch.empty(1, device="cuda:0")
+        torch.cuda.synchronize(0)
+        result.update(
+            {
+                "selectedDevice": "cuda:0",
+                "accelerator": "cuda",
+                "cudaAvailable": True,
+                "gpuCount": device_count,
+                "gpus": gpus,
+            }
+        )
+        return result
+    except Exception as error:
+        result["fallbackReason"] = f"CUDA probe failed: {error}"
+        return result
+
+
+def _is_gpu_failure(response: dict) -> bool:
+    if response.get("success"):
+        return False
+    error_text = "\n".join(str(item) for item in response.get("errors", [])).lower()
+    markers = (
+        "cuda",
+        "cudnn",
+        "cublas",
+        "gpu",
+        "out of memory",
+        "device-side",
+        "driver",
+    )
+    return any(marker in error_text for marker in markers)
 
 
 def supported_datasets() -> list[str]:
@@ -43,12 +115,21 @@ def supported_datasets() -> list[str]:
 
 
 class WorkerClient:
-    def __init__(self, server_url: str, player_token: str, name: str) -> None:
+    def __init__(
+        self,
+        server_url: str,
+        player_token: str,
+        name: str,
+        *,
+        device_preference: str = "auto",
+        device_info: dict | None = None,
+    ) -> None:
         self.server_url = server_url.rstrip("/")
         self.player_token = player_token
         self.name = name
         self.worker_token = ""
         self.worker_id = ""
+        self.device_info = device_info or detect_compute_device(device_preference)
 
     def _request(
         self,
@@ -86,12 +167,17 @@ class WorkerClient:
             "hostname": socket.gethostname(),
             "platform": platform.platform(),
             "torchVersion": torch.__version__,
-            "cuda": torch.cuda.is_available(),
+            "cuda": self.device_info["cudaAvailable"],
+            "cudaBuild": self.device_info["cudaBuild"],
+            "selectedDevice": self.device_info["selectedDevice"],
+            "accelerator": self.device_info["accelerator"],
+            "gpuCount": self.device_info["gpuCount"],
+            "gpus": self.device_info["gpus"],
             "supportedDatasets": supported_datasets(),
             "torchThreads": torch.get_num_threads(),
         }
-        if torch.cuda.is_available():
-            capabilities["gpu"] = torch.cuda.get_device_name(0)
+        if self.device_info["gpus"]:
+            capabilities["gpu"] = self.device_info["gpus"][0]["name"]
         response = self._request(
             WORKER_PLANE_PREFIX + "/workers/register",
             payload={"name": self.name, "capabilities": capabilities},
@@ -121,6 +207,42 @@ class WorkerClient:
             timeout=300,
         )
 
+    def train_with_device_fallback(self, job: dict) -> dict:
+        payload = copy.deepcopy(job["payload"])
+        training = payload.setdefault("training", {})
+        selected_device = self.device_info["selectedDevice"]
+        training["device"] = selected_device
+        response = train_graph(
+            payload,
+            owner_player_id=job.get("playerId"),
+        )
+        if not selected_device.startswith("cuda") or not _is_gpu_failure(response):
+            return response
+
+        first_error = "; ".join(
+            str(item) for item in response.get("errors", [])[:1]
+        )
+        print(
+            "GPU training failed; retrying this job on CPU. "
+            + (first_error or "Unknown CUDA error.")
+        )
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        cpu_payload = copy.deepcopy(job["payload"])
+        cpu_payload.setdefault("training", {})["device"] = "cpu"
+        cpu_response = train_graph(
+            cpu_payload,
+            owner_player_id=job.get("playerId"),
+        )
+        if cpu_response.get("success"):
+            cpu_response.setdefault("warnings", []).append(
+                "The worker detected a GPU but CUDA training failed, so this "
+                "job was completed on CPU."
+            )
+        return cpu_response
+
     def run_job(self, job: dict) -> None:
         job_id = job["jobId"]
         stop_heartbeat = threading.Event()
@@ -137,10 +259,7 @@ class WorkerClient:
         response = None
         try:
             print(f"Training job {job_id} (attempt {job.get('attempt', 1)})")
-            response = train_graph(
-                job["payload"],
-                owner_player_id=job.get("playerId"),
-            )
+            response = self.train_with_device_fallback(job)
             if not response.get("success"):
                 errors = response.get("errors", [])
                 self.fail(job_id, "; ".join(errors) or "Training failed.")
@@ -163,6 +282,13 @@ class WorkerClient:
                     pass
 
     def run(self, poll_seconds: float, once: bool = False) -> None:
+        print(
+            "Training device: "
+            f"{self.device_info['selectedDevice']} "
+            f"(PyTorch CUDA build: {self.device_info['cudaBuild'] or 'none'})"
+        )
+        if self.device_info["fallbackReason"]:
+            print(f"Device selection note: {self.device_info['fallbackReason']}")
         self.register()
         print(f"Worker {self.worker_id} connected to {self.server_url}")
         while True:
@@ -204,6 +330,12 @@ def main() -> None:
     )
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default=os.environ.get("NN_BUILDER_WORKER_DEVICE", "auto"),
+        help="Training device preference; auto probes CUDA and falls back to CPU.",
+    )
+    parser.add_argument(
         "--torch-threads",
         type=int,
         default=int(os.environ.get("NN_BUILDER_TORCH_THREADS", "0")),
@@ -213,6 +345,11 @@ def main() -> None:
         "--log-file",
         default="",
         help="Append worker output to this file.",
+    )
+    parser.add_argument(
+        "--diagnose-device",
+        action="store_true",
+        help="Detect and report the training device, then exit without connecting.",
     )
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
@@ -225,8 +362,6 @@ def main() -> None:
 
     args.server = args.server or "http://127.0.0.1:8000"
     args.name = args.name or f"{socket.gethostname()} worker"
-    if not args.player_token:
-        parser.error("Provide --config, --player-token, or set PLAYER_TOKEN.")
     if args.log_file:
         log_path = Path(args.log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,6 +369,8 @@ def main() -> None:
         sys.stdout = log_stream
         sys.stderr = log_stream
         print(f"\nWorker starting at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    if not args.player_token and not args.diagnose_device:
+        parser.error("Provide --config, --player-token, or set PLAYER_TOKEN.")
     thread_count = args.torch_threads
     if thread_count <= 0:
         thread_count = max(1, min(8, (os.cpu_count() or 2) // 2))
@@ -243,7 +380,17 @@ def main() -> None:
     except RuntimeError:
         pass
     print(f"PyTorch CPU threads: {thread_count}")
-    WorkerClient(args.server, args.player_token, args.name).run(
+    device_info = detect_compute_device(args.device)
+    if args.diagnose_device:
+        print(json.dumps(device_info, indent=2))
+        return
+    WorkerClient(
+        args.server,
+        args.player_token,
+        args.name,
+        device_preference=args.device,
+        device_info=device_info,
+    ).run(
         max(0.5, args.poll_seconds),
         once=args.once,
     )

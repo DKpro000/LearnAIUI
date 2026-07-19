@@ -101,48 +101,142 @@ public internet.
 
 ## Build the automatic player worker
 
-The default bundled worker uses CPU-only PyTorch so it works on all Windows
-player computers without Python, CUDA, or an NVIDIA GPU. Generate and copy it
-into Unity before making a Windows player build:
+The compiled game no longer contains a multi-gigabyte PyTorch folder. After a
+player logs in, Unity downloads and caches only the appropriate worker release:
+
+- if Windows exposes `nvcuda.dll`, Unity downloads the CUDA package;
+- otherwise Unity downloads the smaller CPU package;
+- every downloaded part and the reconstructed ZIP are verified with SHA-256;
+- the archive is extracted with path-traversal protection under Unity's
+  `persistentDataPath`; and
+- if CUDA installation fails, Unity automatically tries the CPU package.
+
+The CUDA worker still performs its own real PyTorch allocation probe. It trains
+on `cuda:0` when usable, falls back to CPU when it is not, and retries a
+CUDA-failed job once on CPU. Players run only Unity and do not install Python or
+the CUDA toolkit.
+
+Create two dedicated environments. The CPU environment uses the CPU wheel:
 
 ```powershell
-.\build_worker.ps1 -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project"
+py -m venv .worker-venv
+.\.worker-venv\Scripts\python.exe -m pip install --upgrade pip
+.\.worker-venv\Scripts\python.exe -m pip install `
+  --index-url https://download.pytorch.org/whl/cpu `
+  torch torchvision
+.\.worker-venv\Scripts\python.exe -m pip install numpy pandas pyinstaller
 ```
 
-The generated folder is approximately 486 MB and is copied to
-`Assets/StreamingAssets/ComputeWorker`. Unity automatically includes
-`StreamingAssets` in the Windows build.
-
-Do not add that generated folder to ordinary Git tracking. In particular,
-`_internal/torch/lib/torch_cpu.dll` is roughly 305 MB, which exceeds GitHub's
-normal 100 MB per-file limit. A clone containing the `.meta` file but not the
-DLL fails with PyTorch `WinError 126`.
-
-For friends who need to open the Unity source project, create a complete worker
-archive and upload it as a GitHub Release asset:
+The server `.venv` on this computer is currently also the CUDA packaging
+environment. Confirm that it reports a CUDA build before packaging:
 
 ```powershell
-.\package_worker_release.ps1 -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project"
+.\.venv\Scripts\python.exe -c `
+  "import torch; print(torch.__version__, torch.version.cuda)"
 ```
 
-After cloning the Unity project, they download the release ZIP and extract it
-into `Assets/StreamingAssets`. The final required path is
-`Assets/StreamingAssets/ComputeWorker/_internal/torch/lib/torch_cpu.dll`.
-They do not need Python. If they do not install the optional worker bundle,
-Unity still works and the server handles training, but their computer does not
-contribute compute.
+Create both packages and the manifest. Use a new version for every worker code
+or dependency change, and use the same value as the GitHub Release tag suffix:
+
+```powershell
+.\package_worker_catalog.ps1 `
+  -Version "2026.07.19" `
+  -ReleaseTag "worker-v2026.07.19" `
+  -Repository "DKpro000/LearnAIUI" `
+  -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project" `
+  -CpuPythonPath ".\.worker-venv\Scripts\python.exe" `
+  -CudaPythonPath ".\.venv\Scripts\python.exe"
+```
+
+The script builds CPU and CUDA workers separately, compresses them, splits any
+archive larger than 1,400 MB into `.part001`, `.part002`, and later parts, and
+creates `release/NNBuilderWorker-manifest.json`. Part URLs, sizes, and SHA-256
+values are placed in that manifest automatically.
+
+Upload these files from `release` to one GitHub Release whose tag exactly
+matches `-ReleaseTag`:
+
+- `NNBuilderWorker-manifest.json`;
+- every CPU ZIP or ZIP part; and
+- every CUDA ZIP or ZIP part.
+
+The script also writes `worker-release-assets.txt`, containing the minimum exact
+assets to upload. The separate checksum files remain useful for local/manual
+verification, but Unity uses the hashes embedded in the manifest, so they do
+not need to be Release assets. Intermediate descriptors, checksum files, and
+old ZIPs are not on the upload list. Do not rename assets because their exact
+names are recorded in the manifest.
+
+Using the GitHub web interface:
+
+1. Open the repository's **Releases** page and select **Draft a new release**.
+2. Create the tag used above, such as `worker-v2026.07.19`.
+3. Drag all required assets from `backend/release` into the asset box.
+4. Wait until every upload finishes, then publish the release.
+5. Open the tag-specific URL and confirm that JSON appears. Do not use
+   `releases/latest`: publishing a later game release would change where that
+   URL points.
+
+```text
+https://github.com/DKpro000/LearnAIUI/releases/download/worker-v2026.07.19/NNBuilderWorker-manifest.json
+```
+
+If GitHub's browser uploader rejects a large part, repartition the existing
+CUDA archive without rebuilding PyTorch:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\repartition_worker_release.ps1 `
+  -TorchVariant Cuda `
+  -PartSizeMB 1400
+```
+
+This regenerates the parts, checksums, manifest, and exact upload list. Refresh
+the release page and upload every file in the new list; never mix assets from
+before and after repartitioning.
+
+With GitHub CLI installed and authenticated, the equivalent upload is:
+
+```powershell
+$assets = Get-Content .\release\worker-release-assets.txt |
+  ForEach-Object { Join-Path (Resolve-Path .\release) $_ }
+
+gh release create "worker-v2026.07.19" $assets `
+  --repo "DKpro000/LearnAIUI" `
+  --title "NNBuilder worker 2026.07.19" `
+  --notes "Automatic CPU/CUDA compute worker release."
+```
+
+To verify a packaged executable before publishing, run:
+
+```powershell
+.\worker-dist\NNBuilderWorker\NNBuilderWorker.exe `
+  --diagnose-device `
+  --log-file .\worker-device.log
+Get-Content .\worker-device.log
+```
+
+The JSON result reports `selectedDevice` as `cuda:0` or `cpu`, plus the GPU name
+and any fallback reason.
 
 Distribute the complete Unity build folder, not only the `.exe`; Unity always
 requires its `_Data` folder and bundled libraries. Players only need to launch
 the Unity `.exe`. They do not install or start Python.
 
-To package the worker, build the Windows player, and write the external server
-configuration in one command, first close the Unity Editor and run:
+After the worker GitHub Release is published, build the small Windows player.
+The build script temporarily moves any developer-only
+`Assets/StreamingAssets/ComputeWorker` folder outside `Assets`, restores it
+afterward, and writes both URLs to `server-config.json`:
 
 ```powershell
 .\build_unity_windows.ps1 `
   -ServerUrl "http://192.168.1.20:8000" `
-  -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project"
+  -UnityProjectPath "D:\folders\Unity\Unity_Prj\My project" `
+  -WorkerManifestUrl (
+    "https://github.com/DKpro000/LearnAIUI/releases/download/" +
+    "worker-v2026.07.19/" +
+    "NNBuilderWorker-manifest.json"
+  )
 ```
 
 The complete distributable is created under
@@ -155,12 +249,13 @@ At runtime Unity automatically:
 2. remembers only the returned session token, never the password;
 3. writes `compute-worker.json` under `Application.persistentDataPath` after
    login;
-4. launches `StreamingAssets/ComputeWorker/NNBuilderWorker.exe` invisibly;
-5. restarts the worker if it exits unexpectedly; and
-6. stops it on logout or when Unity closes.
+4. downloads and verifies the selected worker only when it is not cached;
+5. launches the cached worker invisibly;
+6. restarts the worker if it exits unexpectedly; and
+7. stops it on logout or when Unity closes.
 
 The worker stores downloaded torchvision data, temporary checkpoints, and its
-log under `Application.persistentDataPath/compute-worker-runtime`. The bundled
+log under `Application.persistentDataPath/compute-worker-runtime`. The cached
 worker advertises MNIST, FashionMNIST, and CIFAR10 automatically. It advertises
 a local dataset only when that dataset folder exists under
 `compute-worker-runtime/dataset`, so unsupported jobs remain queued for another
@@ -168,8 +263,9 @@ worker or fall back to the server.
 
 Set `GraphBackendClient.automaticallyContributeCompute` to false before building
 if you want an edition that does not launch the worker. Compute contribution
-uses the player's CPU, memory, storage, electricity, and network connection, so
-the released game should explain this behavior clearly.
+uses the player's GPU when supported, otherwise its CPU, as well as memory,
+storage, electricity, and network connection. The released game should explain
+this behavior clearly.
 
 ## Unity behavior
 
@@ -178,7 +274,8 @@ the released game should explain this behavior clearly.
 - creates a runtime login/register screen without scene or prefab setup;
 - validates and remembers an account session, and supports logout;
 - loads the server URL from an external file or command line;
-- starts and monitors the bundled worker only after login;
+- downloads, verifies, caches, starts, and monitors the correct worker only
+  after login;
 - authenticates training, checkpoint, evaluation, and leaderboard requests;
 - polls queued training jobs until completion;
 - submits final server-evaluated macro-F1 scores;
