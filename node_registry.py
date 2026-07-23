@@ -460,6 +460,10 @@ def get_ports(node_kind):
         ],
     }
 
+def get_doc_url(definition_id: str) -> str:
+    if definition_id.startswith("custom."):
+        return ""
+    return f"https://pytorch.org/docs/stable/generated/{definition_id}.html"
 
 def make_definition(
     definition_id,
@@ -478,6 +482,7 @@ def make_definition(
         "symbol": symbol,
         "category": category,
         "nodeKind": node_kind,
+        "docUrl": get_doc_url(definition_id),
         "initParams": parse_signature(obj),
         "inputPorts": ports["inputPorts"],
         "outputPorts": ports["outputPorts"],
@@ -595,6 +600,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.Dataset",
             "category": "Custom Graph Nodes",
             "nodeKind": "DatasetNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "dataset_name",
@@ -637,6 +643,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.Container",
             "category": "Custom Graph Nodes",
             "nodeKind": "ContainerNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "container_name",
@@ -661,6 +668,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.Input",
             "category": "Custom Graph Nodes",
             "nodeKind": "InputNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "input_name",
@@ -696,6 +704,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.Output",
             "category": "Custom Graph Nodes",
             "nodeKind": "OutputNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "output_name",
@@ -734,6 +743,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.ResultOutput",
             "category": "Result Outputs",
             "nodeKind": "ResultOutputNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "result_type",
@@ -767,6 +777,7 @@ def build_custom_operation_definitions():
             "symbol": "custom.FinalResult",
             "category": "Result Outputs",
             "nodeKind": "FinalResultNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "result_type",
@@ -798,6 +809,7 @@ def build_custom_operation_definitions():
             "symbol": "torch.add",
             "category": "Custom Tensor Operations",
             "nodeKind": "OperationNode",
+            "docUrl": "",
             "initParams": [],
             "inputPorts": [
                 {"name": "a", "portType": "Tensor"},
@@ -817,6 +829,7 @@ def build_custom_operation_definitions():
             "symbol": "torch.cat",
             "category": "Custom Tensor Operations",
             "nodeKind": "OperationNode",
+            "docUrl": "",
             "initParams": [
                 {
                     "name": "dim",
