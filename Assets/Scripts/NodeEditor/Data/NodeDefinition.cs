@@ -9,6 +9,7 @@ public class NodeDefinition
     public string symbol;
     public string category;
     public string nodeKind;
+    public string docUrl;
 
     public bool allowedInModelGraph;
     public bool allowedInSequential;

@@ -585,6 +585,13 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
         nodeData.position = rectTransform.anchoredPosition;
     }
 
+    public void OpenDocUrl()
+    {
+        if (nodeData == null || string.IsNullOrEmpty(nodeData.docUrl))
+            return;
+        Application.OpenURL(nodeData.docUrl);
+    }
+
     public NodeData GetNodeData()
     {
         return nodeData;

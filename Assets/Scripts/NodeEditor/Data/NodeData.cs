@@ -12,6 +12,7 @@ public class NodeData
     public string symbol;
     public string category;
     public string nodeKind;
+    public string docUrl;
 
     public Vector2 position;
 
