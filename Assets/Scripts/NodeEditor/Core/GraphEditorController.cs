@@ -159,8 +159,8 @@ public class GraphEditorController : MonoBehaviour
 
     private Vector2 GetSpawnPosition()
     {
-        float x = -250 + (spawnIndex % 3) * 280;
-        float y = 160 - (spawnIndex / 3) * 170;
+        float x = -250 + (spawnIndex % 3) * 320;
+        float y = 160 - (spawnIndex / 3) * 200;
 
         spawnIndex++;
 
