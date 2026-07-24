@@ -1,5 +1,7 @@
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -56,6 +58,8 @@ public class GraphEditorController : MonoBehaviour
 
         RenderGraph();
         RefreshPathText();
+
+        Debug.Log("testing");
     }
 
     public void AddNodeFromDefinition(NodeDefinition definition)
@@ -1225,5 +1229,81 @@ public class GraphEditorController : MonoBehaviour
         defaultTrainSettings = settings;
 
         StartCoroutine(graphBackendClient.FinalEvaluateGraph(rootGraph, settings));
+    }
+    //nanami's changes
+    public void SaveGraphToFile(string filePath = "")
+    {
+        if (rootGraph == null)
+        {
+            Debug.LogError("Cannot save: Root graph is null.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(filePath))
+        {
+            filePath = Path.Combine(Application.persistentDataPath, "saved_graph.json");
+        }
+
+        try
+        {
+            // Formatting.Indented keeps the JSON readable for debugging
+            string json = JsonConvert.SerializeObject(rootGraph, Formatting.Indented, new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore
+            });
+
+            File.WriteAllText(filePath, json);
+            Debug.Log("Graph saved successfully to: " + filePath);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Failed to save graph: " + e.Message);
+        }
+    }
+
+    public void LoadGraphFromFile(string filePath = "")
+    {
+        if (string.IsNullOrEmpty(filePath))
+        {
+            filePath = Path.Combine(Application.persistentDataPath, "saved_graph.json");
+        }
+
+        if (!File.Exists(filePath))
+        {
+            Debug.LogWarning("Save file not found at: " + filePath);
+            return;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(filePath);
+            GraphData loadedGraph = JsonConvert.DeserializeObject<GraphData>(json);
+
+            if (loadedGraph == null)
+            {
+                Debug.LogError("Deserialized graph was null.");
+                return;
+            }
+
+            // Reset breadcrumbs/navigation back to root
+            graphPath.Clear();
+            containerNodePath.Clear();
+            pendingOutputPort = null;
+
+            // Swap out the current graph state with loaded data
+            rootGraph = loadedGraph;
+            currentGraph = rootGraph;
+            graphPath.Add(rootGraph);
+
+            // Re-render views in Unity
+            RenderGraph();
+            RefreshPathText();
+
+            Debug.Log("Graph loaded successfully from: " + filePath);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Failed to load graph: " + e.Message);
+        }
     }
 }
