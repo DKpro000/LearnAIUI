@@ -83,6 +83,7 @@ public class GraphEditorController : MonoBehaviour
         node.symbol = definition.symbol;
         node.category = definition.category;
         node.nodeKind = definition.nodeKind;
+        node.docUrl = definition.docUrl;
 
         node.position = GetSpawnPosition();
 
