@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: 8d74cfcd3fb12bc4da293b42c12079ae
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - bookImage: {instanceID: 0}
+  - closedCoverSprite: {instanceID: 0}
+  - openRestingSprite: {instanceID: 0}
+  - bookCoverTitle: {instanceID: 0}
+  - coverButton: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
