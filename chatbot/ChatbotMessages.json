@@ -1,0 +1,14 @@
+[
+    {
+        "user": "hi\n",
+        "bot": "Hello! I can help you build and train neural networks inside Asia Pacific Kindergarten (APK). Ask me about layers, datasets, training settings, or how to read your results. What would you like to work on today?"
+    },
+    {
+        "user": "wats lazycontranpose3d\n",
+        "bot": "LazyConvTranspose3d is a node you can use in Asia Pacific Kindergarten (APK) to upsample 3D data, like volumes or videos. It works like ConvTranspose3d but you do not have to set the in_channels parameter yourself. The node will figure out the number of input channels automatically from your data. This makes it easier to build networks, especially when you are not sure about the input shape. You still need to set out_channels, kernel_size, and other options. Use this node when you want to increase the spatial size of your 3D data in your model graph."
+    },
+    {
+        "user": "wats the stride in it\n",
+        "bot": "The stride parameter in the LazyConvTranspose3d node controls the upsampling factor. If you set stride to 2, the output size will be roughly doubled along each spatial dimension. You can use stride to decide how much bigger you want your 3D data to get after this layer. This is useful for tasks like generating higher-resolution outputs from lower-resolution inputs."
+    }
+]

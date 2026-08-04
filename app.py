@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, Request
@@ -14,6 +18,7 @@ from local_datasets import infer_dataset_metadata
 from model_builder import dry_run_graph
 from node_registry import build_node_library
 from worker_plane import create_worker_plane_router
+from chatbot.SetupUser import Botpress, conversationID
 
 
 control_plane = ControlPlane.from_environment()
@@ -208,6 +213,30 @@ def delete_checkpoint_endpoint(
     except Exception as error:
         return {"success": False, "deleted": {}, "errors": [str(error)]}
 
+# Chatbot API ---------------------------------------------------------
+
+CHAT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chatbot", "ChatbotMessages.json")
+bpUser = Botpress()
+
+
+@app.get("/chat")
+def get_chat():
+    with open(CHAT_FILE, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+@app.post("/chat")
+async def send_chat(payload: dict):
+    before = bpUser.getLastBotMessage()
+    bpUser.createMessage(conversationID, payload["message"])
+    for _ in range(20):
+        await asyncio.sleep(1)
+        if bpUser.getLastBotMessage() != before:
+            break
+    bpUser.safeMessageToJsonFile()
+    return {"success": True}
+
+#------------------------------------------------------------------------------
 
 @app.get("/compute/status")
 @app.get("/worker-plane/status")

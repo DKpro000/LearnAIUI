@@ -213,6 +213,7 @@ class ComputeStore:
         if not isinstance(token, str):
             raise AuthenticationError("Invalid worker token.")
         token = token.removeprefix("Bearer ").strip()
+        
         if not token:
             raise AuthenticationError("Invalid worker token.")
 
