@@ -7,6 +7,7 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
 {
     [Header("UI")]
     public TMP_Text titleText;
+    public TMP_Text bookTitleText;
     public TMP_Text categoryText;
     public TMP_Text kindText;
     public TMP_Text resultText;
@@ -54,6 +55,12 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
         BuildParameterRows();
         BuildPorts();
         ApplyFullLayout();
+
+        BookOpenAnimator bookAnimator = GetComponent<BookOpenAnimator>();
+        if (bookAnimator != null)
+        {
+            bookAnimator.ResetToClosedState();
+        }
     }
 
     private void AutoBindReferences()
@@ -147,6 +154,18 @@ public class NodeView : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointer
             titleText.alignment = TextAlignmentOptions.Center;
             titleText.enableWordWrapping = false;
             titleText.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        if (bookTitleText != null)
+        {
+            bookTitleText.text = nodeData.title;
+            bookTitleText.color = Color.white;
+            bookTitleText.alignment = TextAlignmentOptions.Center;
+            bookTitleText.enableWordWrapping = true;
+            bookTitleText.overflowMode = TextOverflowModes.Truncate;
+            bookTitleText.enableAutoSizing = true;
+            bookTitleText.fontSizeMin = 16f;
+            bookTitleText.fontSizeMax = 26f;
         }
 
         if (categoryText != null)
