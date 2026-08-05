@@ -1235,7 +1235,10 @@ public class GraphEditorController : MonoBehaviour
 
 
     //nanami's changes
+    [Header("changing scene")]
+    public GameObject success;
     private string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+
     public void SaveGraphToFile(string filePath = "")
     {
         if (rootGraph == null)
@@ -1315,91 +1318,57 @@ public class GraphEditorController : MonoBehaviour
 
     public void CheckAnswer()
     {
-        SaveGraphToFile();
-        string answerFilePath = Path.Combine(projectRoot, "DogVsMuffinAnswer.json");
-
-        if (!File.Exists(answerFilePath))
+        if (rootGraph == null)
         {
-            Debug.LogError("Answer file not found at: " + answerFilePath);
+            Debug.LogError("Cannot check answer: Root graph is null.");
             return;
         }
 
         try
         {
-            // 1. Load the answer file
-            string answerJson = File.ReadAllText(answerFilePath);
-
-            // 2. Serialize user's current graph state
+            // 1. Serialize user's current graph state to JSON
             string userJson = JsonConvert.SerializeObject(rootGraph, Formatting.Indented, new JsonSerializerSettings
             {
                 ReferenceLoopHandling = ReferenceLoopHandling.Ignore
             });
 
-            // 3. Parse JSONs into JObjects
-            JObject answerObj = JObject.Parse(answerJson);
+            // 2. Parse into a JObject
             JObject userObj = JObject.Parse(userJson);
 
-            // 4. Sanitize both objects (strip dynamic fields and sort nodes arrays)
-            SanitizeAndSortGraph(answerObj);
-            SanitizeAndSortGraph(userObj);
+            // 3. Count nodes that match ReLU activation criteria
+            int reluCount = 0;
+            if (userObj["nodes"] is JArray nodesArray)
+            {
+                foreach (JToken node in nodesArray)
+                {
+                    string definitionId = node["definitionId"]?.ToString() ?? "";
+                    string title = node["title"]?.ToString() ?? "";
 
-            // 5. Compare cleaned objects
-            bool isCorrect = JToken.DeepEquals(userObj, answerObj);
+                    // Check if either definitionId or title contains "relu" (case-insensitive)
+                    if (definitionId.IndexOf("relu", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        title.IndexOf("relu", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        reluCount++;
+                    }
+                }
+            }
+
+            // 4. Validate if there are at least two ReLU nodes
+            bool isCorrect = reluCount >= 2;
 
             if (isCorrect)
             {
-                Debug.Log("<color=green>Answer is Correct!</color>");
-                // TODO: Win / Next level logic
+                Debug.Log($"<color=green>Answer is Correct! Found {reluCount} ReLU node(s).</color>");
+                success.SetActive(true);
             }
             else
             {
-                Debug.Log("<color=red>Answer is Incorrect!</color>");
-                // Optional: FindDifferences(userObj, answerObj, "Root");
+                Debug.Log($"<color=red>Answer is Incorrect! Found {reluCount} ReLU node(s), but at least 2 are required.</color>");
             }
         }
         catch (Exception e)
         {
             Debug.LogError("Error checking answer: " + e.Message);
-        }
-    }
-
-    /// <summary>
-    /// Strips out node IDs, graph IDs, and positional data, 
-    /// and sorts any "nodes" arrays so item creation order does not matter.
-    /// </summary>
-    private void SanitizeAndSortGraph(JToken token)
-    {
-        if (token is JObject obj)
-        {
-            // Remove IDs and Position data
-            obj.Remove("position");
-            obj.Remove("nodeId");
-            obj.Remove("graphId");
-
-            // Sort the "nodes" array if present
-            if (obj.Property("nodes") != null && obj["nodes"] is JArray nodesArray)
-            {
-                // Sort nodes by definitionId or title so order in array doesn't matter
-                var sortedNodes = nodesArray
-                    .OrderBy(n => n["definitionId"]?.ToString() ?? n["title"]?.ToString() ?? "")
-                    .ToList();
-
-                // Replace existing nodes array with the sorted array
-                obj["nodes"] = new JArray(sortedNodes);
-            }
-
-            // Recursively inspect child properties (e.g., inside innerGraph or parameters)
-            foreach (JProperty property in obj.Properties())
-            {
-                SanitizeAndSortGraph(property.Value);
-            }
-        }
-        else if (token is JArray array)
-        {
-            foreach (JToken item in array)
-            {
-                SanitizeAndSortGraph(item);
-            }
         }
     }
 }
