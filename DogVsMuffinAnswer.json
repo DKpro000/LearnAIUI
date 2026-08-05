@@ -1,0 +1,773 @@
+{
+  "graphId": "7cf38a17-8656-4eca-aa85-bbd89623a58f",
+  "displayName": "Root Graph",
+  "nodes": [
+    {
+      "nodeId": "b60b523f-fe9b-4ee3-bdf6-eb8dc6e745c8",
+      "definitionId": "torch.nn.Conv2d",
+      "title": "Conv2d",
+      "symbol": "torch.nn.Conv2d",
+      "category": "Convolution Layers",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": -301.199951,
+        "y": -16.8000488,
+        "normalized": {
+          "x": -0.9984481,
+          "y": -0.0556905,
+          "magnitude": 1.0,
+          "sqrMagnitude": 1.0
+        },
+        "magnitude": 301.668121,
+        "sqrMagnitude": 91003.65
+      },
+      "parameters": [
+        {
+          "key": "in_channels",
+          "value": "3",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "out_channels",
+          "value": "16",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "kernel_size",
+          "value": "9",
+          "type": "int | tuple[int, int]",
+          "required": true,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "stride",
+          "value": "1",
+          "type": "int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "padding",
+          "value": "0",
+          "type": "str | int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "dilation",
+          "value": "1",
+          "type": "int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "groups",
+          "value": "1",
+          "type": "<class 'int'>",
+          "required": false,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "bias",
+          "value": "True",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "padding_mode",
+          "value": "zeros",
+          "type": "typing.Literal['zeros', 'reflect', 'replicate', 'circular']",
+          "required": false,
+          "controlType": "dropdown",
+          "advanced": false,
+          "options": [
+            "zeros",
+            "reflect",
+            "replicate",
+            "circular"
+          ]
+        },
+        {
+          "key": "device",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        },
+        {
+          "key": "dtype",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "88eba461-c91c-46d2-ac6e-89c6858c1ff1",
+      "definitionId": "torch.nn.functional.relu",
+      "title": "relu",
+      "symbol": "torch.nn.functional.relu",
+      "category": "Functional / Activation Functions",
+      "nodeKind": "FunctionNode",
+      "position": {
+        "x": -49.9998169,
+        "y": 153.600128,
+        "normalized": {
+          "x": -0.309532732,
+          "y": 0.9508888,
+          "magnitude": 1.0,
+          "sqrMagnitude": 1.0
+        },
+        "magnitude": 161.533218,
+        "sqrMagnitude": 26092.98
+      },
+      "parameters": [
+        {
+          "key": "inplace",
+          "value": "False",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "5275e6f7-d1d4-43d0-8dea-ef7b05cfc974",
+      "definitionId": "torch.nn.Conv2d",
+      "title": "Conv2d",
+      "symbol": "torch.nn.Conv2d",
+      "category": "Convolution Layers",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": 458.000366,
+        "y": -64.3999,
+        "normalized": {
+          "x": 0.9902585,
+          "y": -0.139241263,
+          "magnitude": 1.0,
+          "sqrMagnitude": 1.0
+        },
+        "magnitude": 462.505859,
+        "sqrMagnitude": 213911.688
+      },
+      "parameters": [
+        {
+          "key": "in_channels",
+          "value": "16",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "out_channels",
+          "value": "32",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "kernel_size",
+          "value": "9",
+          "type": "int | tuple[int, int]",
+          "required": true,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "stride",
+          "value": "1",
+          "type": "int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "padding",
+          "value": "0",
+          "type": "str | int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "dilation",
+          "value": "1",
+          "type": "int | tuple[int, int]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "groups",
+          "value": "1",
+          "type": "<class 'int'>",
+          "required": false,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "bias",
+          "value": "True",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "padding_mode",
+          "value": "zeros",
+          "type": "typing.Literal['zeros', 'reflect', 'replicate', 'circular']",
+          "required": false,
+          "controlType": "dropdown",
+          "advanced": false,
+          "options": [
+            "zeros",
+            "reflect",
+            "replicate",
+            "circular"
+          ]
+        },
+        {
+          "key": "device",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        },
+        {
+          "key": "dtype",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "fe8c9054-c6b8-49a5-93fb-cdc4c867c8ab",
+      "definitionId": "torch.nn.functional.relu",
+      "title": "relu",
+      "symbol": "torch.nn.functional.relu",
+      "category": "Functional / Activation Functions",
+      "nodeKind": "FunctionNode",
+      "position": {
+        "x": 456.39978,
+        "y": 70.79996,
+        "normalized": {
+          "x": 0.988180637,
+          "y": 0.153293565,
+          "normalized": {
+            "x": 0.9881807,
+            "y": 0.15329358,
+            "magnitude": 1.0,
+            "sqrMagnitude": 1.0
+          },
+          "magnitude": 0.99999994,
+          "sqrMagnitude": 0.9999999
+        },
+        "magnitude": 461.858643,
+        "sqrMagnitude": 213313.391
+      },
+      "parameters": [
+        {
+          "key": "inplace",
+          "value": "False",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "e6d82307-f23d-4d68-aa88-35be5cefe7f4",
+      "definitionId": "torch.nn.MaxPool2d",
+      "title": "MaxPool2d",
+      "symbol": "torch.nn.MaxPool2d",
+      "category": "Pooling layers",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": 213.199951,
+        "y": 53.2000122,
+        "normalized": {
+          "x": 0.9702494,
+          "y": 0.242107376,
+          "normalized": {
+            "x": 0.9702495,
+            "y": 0.242107391,
+            "magnitude": 1.0,
+            "sqrMagnitude": 1.0
+          },
+          "magnitude": 0.99999994,
+          "sqrMagnitude": 0.9999999
+        },
+        "magnitude": 219.737259,
+        "sqrMagnitude": 48284.46
+      },
+      "parameters": [
+        {
+          "key": "kernel_size",
+          "value": "9",
+          "type": "int | tuple[int, ...]",
+          "required": true,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "stride",
+          "value": "None",
+          "type": "int | tuple[int, ...] | None",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "padding",
+          "value": "1",
+          "type": "int | tuple[int, ...]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "dilation",
+          "value": "1",
+          "type": "int | tuple[int, ...]",
+          "required": false,
+          "controlType": "text",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "return_indices",
+          "value": "False",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "ceil_mode",
+          "value": "False",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "e111b14d-0cc7-414b-b2f6-707c6d98e605",
+      "definitionId": "torch.nn.AdaptiveAvgPool2d",
+      "title": "AdaptiveAvgPool2d",
+      "symbol": "torch.nn.AdaptiveAvgPool2d",
+      "category": "Pooling layers",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": 456.3996,
+        "y": 73.60007,
+        "normalized": {
+          "x": 0.9872455,
+          "y": 0.159205511,
+          "magnitude": 1.0,
+          "sqrMagnitude": 1.00000012
+        },
+        "magnitude": 462.295959,
+        "sqrMagnitude": 213717.563
+      },
+      "parameters": [
+        {
+          "key": "output_size",
+          "value": "9",
+          "type": "int | None | tuple[int | None, ...]",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "1072ff0c-7171-4baa-86fc-3d1566a8e6ea",
+      "definitionId": "torch.nn.Flatten",
+      "title": "Flatten",
+      "symbol": "torch.nn.Flatten",
+      "category": "Other torch.nn Modules",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": 458.800049,
+        "y": 51.1998,
+        "normalized": {
+          "x": 0.9938308,
+          "y": 0.110906564,
+          "normalized": {
+            "x": 0.99383086,
+            "y": 0.110906571,
+            "magnitude": 1.0,
+            "sqrMagnitude": 1.0
+          },
+          "magnitude": 0.99999994,
+          "sqrMagnitude": 0.99999994
+        },
+        "magnitude": 461.648041,
+        "sqrMagnitude": 213118.9
+      },
+      "parameters": [
+        {
+          "key": "start_dim",
+          "value": "1",
+          "type": "<class 'int'>",
+          "required": false,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "end_dim",
+          "value": "-1",
+          "type": "<class 'int'>",
+          "required": false,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "533462f3-201d-46e2-afe7-13168a795a0d",
+      "definitionId": "torch.nn.Linear",
+      "title": "Linear",
+      "symbol": "torch.nn.Linear",
+      "category": "Linear Layers",
+      "nodeKind": "ModuleNode",
+      "position": {
+        "x": 461.199829,
+        "y": 24.3999939,
+        "normalized": {
+          "x": 0.998603463,
+          "y": 0.0528315865,
+          "magnitude": 1.0,
+          "sqrMagnitude": 1.0
+        },
+        "magnitude": 461.844818,
+        "sqrMagnitude": 213300.641
+      },
+      "parameters": [
+        {
+          "key": "in_features",
+          "value": "32",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "out_features",
+          "value": "2",
+          "type": "<class 'int'>",
+          "required": true,
+          "controlType": "int",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "bias",
+          "value": "True",
+          "type": "<class 'bool'>",
+          "required": false,
+          "controlType": "checkbox",
+          "advanced": false,
+          "options": []
+        },
+        {
+          "key": "device",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        },
+        {
+          "key": "dtype",
+          "value": "None",
+          "type": "Any",
+          "required": false,
+          "controlType": "hidden",
+          "advanced": true,
+          "options": []
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [
+        {
+          "name": "out",
+          "portType": "Tensor"
+        }
+      ],
+      "innerGraph": null,
+      "resultText": ""
+    },
+    {
+      "nodeId": "4a9fe6f1-1761-4095-9752-f696bf9346bd",
+      "definitionId": "custom.FinalResult",
+      "title": "Final Result",
+      "symbol": "custom.FinalResult",
+      "category": "Result Outputs",
+      "nodeKind": "FinalResultNode",
+      "position": {
+        "x": 466.000244,
+        "y": 6.00003052,
+        "normalized": {
+          "x": 0.9999171,
+          "y": 0.0128745278,
+          "normalized": {
+            "x": 0.99991715,
+            "y": 0.0128745288,
+            "magnitude": 1.0,
+            "sqrMagnitude": 1.0
+          },
+          "magnitude": 0.99999994,
+          "sqrMagnitude": 0.99999994
+        },
+        "magnitude": 466.038879,
+        "sqrMagnitude": 217192.234
+      },
+      "parameters": [
+        {
+          "key": "result_type",
+          "value": "All Metrics",
+          "type": "str",
+          "required": true,
+          "controlType": "dropdown",
+          "advanced": false,
+          "options": [
+            "All Metrics",
+            "Accuracy",
+            "F1 Score",
+            "Confusion Matrix"
+          ]
+        }
+      ],
+      "inputPorts": [
+        {
+          "name": "x",
+          "portType": "Tensor"
+        }
+      ],
+      "outputPorts": [],
+      "innerGraph": null,
+      "resultText": ""
+    }
+  ],
+  "edges": [
+    {
+      "edgeId": "98b13188-eb57-4513-af88-ad5887f339ce",
+      "fromNodeId": "b60b523f-fe9b-4ee3-bdf6-eb8dc6e745c8",
+      "fromPortName": "out",
+      "toNodeId": "88eba461-c91c-46d2-ac6e-89c6858c1ff1",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "8d55c2af-52ff-4226-8e05-d6cf30ebde9e",
+      "fromNodeId": "5275e6f7-d1d4-43d0-8dea-ef7b05cfc974",
+      "fromPortName": "out",
+      "toNodeId": "fe8c9054-c6b8-49a5-93fb-cdc4c867c8ab",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "3355c1f2-a36b-405c-92a1-f4d7ed5a140e",
+      "fromNodeId": "e6d82307-f23d-4d68-aa88-35be5cefe7f4",
+      "fromPortName": "out",
+      "toNodeId": "5275e6f7-d1d4-43d0-8dea-ef7b05cfc974",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "d60e395e-2bdd-494e-acae-f8dc24ab7e9e",
+      "fromNodeId": "fe8c9054-c6b8-49a5-93fb-cdc4c867c8ab",
+      "fromPortName": "out",
+      "toNodeId": "e111b14d-0cc7-414b-b2f6-707c6d98e605",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "11af1daf-95bf-4641-9341-fb787649b61f",
+      "fromNodeId": "e111b14d-0cc7-414b-b2f6-707c6d98e605",
+      "fromPortName": "out",
+      "toNodeId": "1072ff0c-7171-4baa-86fc-3d1566a8e6ea",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "dfa777fb-3e06-4f9e-9686-0d30a972e2f4",
+      "fromNodeId": "5275e6f7-d1d4-43d0-8dea-ef7b05cfc974",
+      "fromPortName": "out",
+      "toNodeId": "533462f3-201d-46e2-afe7-13168a795a0d",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "fde5d526-8513-40c3-a114-e1bdf951b10c",
+      "fromNodeId": "533462f3-201d-46e2-afe7-13168a795a0d",
+      "fromPortName": "out",
+      "toNodeId": "4a9fe6f1-1761-4095-9752-f696bf9346bd",
+      "toPortName": "x"
+    },
+    {
+      "edgeId": "8a2fc245-3f83-4adc-a120-ee5b15b5ca5d",
+      "fromNodeId": "88eba461-c91c-46d2-ac6e-89c6858c1ff1",
+      "fromPortName": "out",
+      "toNodeId": "e6d82307-f23d-4d68-aa88-35be5cefe7f4",
+      "toPortName": "x"
+    }
+  ]
+}

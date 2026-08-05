@@ -1,7 +1,9 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -1230,7 +1232,10 @@ public class GraphEditorController : MonoBehaviour
 
         StartCoroutine(graphBackendClient.FinalEvaluateGraph(rootGraph, settings));
     }
+
+
     //nanami's changes
+    private string projectRoot = Directory.GetParent(Application.dataPath).FullName;
     public void SaveGraphToFile(string filePath = "")
     {
         if (rootGraph == null)
@@ -1241,7 +1246,7 @@ public class GraphEditorController : MonoBehaviour
 
         if (string.IsNullOrEmpty(filePath))
         {
-            filePath = Path.Combine(Application.persistentDataPath, "saved_graph.json");
+            filePath = Path.Combine(projectRoot, "CheckAnswer.json");
         }
 
         try
@@ -1265,7 +1270,8 @@ public class GraphEditorController : MonoBehaviour
     {
         if (string.IsNullOrEmpty(filePath))
         {
-            filePath = Path.Combine(Application.persistentDataPath, "saved_graph.json");
+            
+            filePath = Path.Combine(projectRoot, "DogVsMuffinQuestion.json");
         }
 
         if (!File.Exists(filePath))
@@ -1304,6 +1310,96 @@ public class GraphEditorController : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError("Failed to load graph: " + e.Message);
+        }
+    }
+
+    public void CheckAnswer()
+    {
+        SaveGraphToFile();
+        string answerFilePath = Path.Combine(projectRoot, "DogVsMuffinAnswer.json");
+
+        if (!File.Exists(answerFilePath))
+        {
+            Debug.LogError("Answer file not found at: " + answerFilePath);
+            return;
+        }
+
+        try
+        {
+            // 1. Load the answer file
+            string answerJson = File.ReadAllText(answerFilePath);
+
+            // 2. Serialize user's current graph state
+            string userJson = JsonConvert.SerializeObject(rootGraph, Formatting.Indented, new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore
+            });
+
+            // 3. Parse JSONs into JObjects
+            JObject answerObj = JObject.Parse(answerJson);
+            JObject userObj = JObject.Parse(userJson);
+
+            // 4. Sanitize both objects (strip dynamic fields and sort nodes arrays)
+            SanitizeAndSortGraph(answerObj);
+            SanitizeAndSortGraph(userObj);
+
+            // 5. Compare cleaned objects
+            bool isCorrect = JToken.DeepEquals(userObj, answerObj);
+
+            if (isCorrect)
+            {
+                Debug.Log("<color=green>Answer is Correct!</color>");
+                // TODO: Win / Next level logic
+            }
+            else
+            {
+                Debug.Log("<color=red>Answer is Incorrect!</color>");
+                // Optional: FindDifferences(userObj, answerObj, "Root");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error checking answer: " + e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Strips out node IDs, graph IDs, and positional data, 
+    /// and sorts any "nodes" arrays so item creation order does not matter.
+    /// </summary>
+    private void SanitizeAndSortGraph(JToken token)
+    {
+        if (token is JObject obj)
+        {
+            // Remove IDs and Position data
+            obj.Remove("position");
+            obj.Remove("nodeId");
+            obj.Remove("graphId");
+
+            // Sort the "nodes" array if present
+            if (obj.Property("nodes") != null && obj["nodes"] is JArray nodesArray)
+            {
+                // Sort nodes by definitionId or title so order in array doesn't matter
+                var sortedNodes = nodesArray
+                    .OrderBy(n => n["definitionId"]?.ToString() ?? n["title"]?.ToString() ?? "")
+                    .ToList();
+
+                // Replace existing nodes array with the sorted array
+                obj["nodes"] = new JArray(sortedNodes);
+            }
+
+            // Recursively inspect child properties (e.g., inside innerGraph or parameters)
+            foreach (JProperty property in obj.Properties())
+            {
+                SanitizeAndSortGraph(property.Value);
+            }
+        }
+        else if (token is JArray array)
+        {
+            foreach (JToken item in array)
+            {
+                SanitizeAndSortGraph(item);
+            }
         }
     }
 }
