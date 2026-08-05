@@ -36,6 +36,36 @@ Unity requests before recording jobs and is the only component that assigns a
 validated job to a worker. The worker plane never opens the database; it only
 authenticates worker traffic and delegates state changes to the control plane.
 
+### Interviewer Mode
+
+After login, the Unity player exposes explicit **Sandbox** and **Interviewer**
+workspace options. Sandbox keeps the normal graph editor active. Interviewer
+opens the isolated interview workspace without changing the graph editor and
+includes:
+
+- candidate and interviewer roles, room code, session timer, and connection
+  status;
+- a SynCode-style compact media bar with clickable microphone, camera, and
+  screen-share controls, plus a device settings panel for camera/microphone
+  selection, live testing, input level, video quality, and common audio
+  processing preferences;
+- a SynCode-style whiteboard with explicit Drawing and Annotation modes,
+  eraser, colors, brush sizes, undo/redo, clear, PNG export, and Pop Out/Dock;
+- interviewer-only CSV/TSV preprocessing with delimiter detection, header and
+  label selection, missing-value handling, MinMax or Z-score normalization,
+  deterministic shuffling, train/validation/test splits, row limits, and
+  suggested epochs, batch size, and learning rate.
+
+Processed interviewer datasets are written beneath
+`Application.persistentDataPath/InterviewerDatasets`. Raw input stays local.
+Each output folder contains `train.csv`, `validation.csv`, `test.csv`, and a
+`manifest.json` describing the preprocessing and suggested training settings.
+
+Realtime operations use `IInterviewerRealtimeService`. The default bridge is
+deliberately local-only. Production communication requires an adapter such as
+LiveKit and a server endpoint that issues authenticated room tokens; inject the
+adapter with `InterviewerModePanel.SetRealtimeService(...)`.
+
 Compute behavior:
 
 - With zero or one active player worker, the server trains the model.

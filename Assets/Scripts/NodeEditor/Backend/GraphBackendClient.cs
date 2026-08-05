@@ -21,6 +21,9 @@ public class GraphBackendClient : MonoBehaviour
     [Header("Account")]
     public bool showRuntimeAccountPanel = true;
 
+    [Header("Interviewer Mode")]
+    public bool showRuntimeInterviewerMode = true;
+
     [Header("Player / Distributed Compute")]
     public string playerDisplayName = "";
     public bool submitFinalScoreToLeaderboard = true;
@@ -114,6 +117,16 @@ public class GraphBackendClient : MonoBehaviour
                 accountPanel = gameObject.AddComponent<AccountLoginPanel>();
             }
             accountPanel.Initialize(this);
+        }
+        if (showRuntimeInterviewerMode)
+        {
+            InterviewerModePanel interviewerPanel =
+                GetComponent<InterviewerModePanel>();
+            if (interviewerPanel == null)
+            {
+                interviewerPanel = gameObject.AddComponent<InterviewerModePanel>();
+            }
+            interviewerPanel.Initialize(this);
         }
     }
 
