@@ -114,6 +114,8 @@ public class GraphBackendClient : MonoBehaviour
                 accountPanel = gameObject.AddComponent<AccountLoginPanel>();
             }
             accountPanel.Initialize(this);
+
+            
         }
     }
 
