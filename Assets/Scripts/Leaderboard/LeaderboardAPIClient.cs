@@ -20,6 +20,16 @@ public class LeaderboardAPIClient : MonoBehaviour
         StartCoroutine(FetchAndPopulateLeaderboard());
     }
 
+    /// <summary>
+    /// Public method to manually refresh the leaderboard.
+    /// Can be called from a button click or other UI events.
+    /// </summary>
+    public void RefreshLeaderboard()
+    {
+        Debug.Log("Manual leaderboard refresh triggered");
+        StartCoroutine(FetchAndPopulateLeaderboard());
+    }
+
     private IEnumerator FetchAndPopulateLeaderboard()
     {
         using (UnityWebRequest request = UnityWebRequest.Get(apiUrl))
